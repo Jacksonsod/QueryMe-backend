@@ -3,7 +3,6 @@ package com.year2.queryme.model;
 import com.year2.queryme.model.enums.UserTypes;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.ColumnDefault;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
