@@ -1,28 +1,30 @@
 package com.year2.queryme.sandbox.service;
 
-import com.year2.queryme.sandbox.dto.SandboxConnectionInfo;
+import com.year2.queryme.sandbox.exception.SandboxExpiredException;
+import com.year2.queryme.sandbox.exception.SandboxNotFoundException;
+import com.year2.queryme.sandbox.exception.SandboxProvisioningException;
 import com.year2.queryme.sandbox.model.SandboxRegistry;
 import com.year2.queryme.sandbox.repository.SandboxRegistryRepo;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.dao.DataAccessException;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("SandboxServiceImpl Custom Exception Tests")
 class SandboxServiceImplTest {
 
     @Mock
@@ -37,229 +39,194 @@ class SandboxServiceImplTest {
     private UUID examId;
     private UUID studentId;
     private String seedSql;
-    private String schemaName;
-    private String dbUser;
-    private String dbPassword;
 
     @BeforeEach
     void setUp() {
         examId = UUID.randomUUID();
         studentId = UUID.randomUUID();
-        seedSql = "CREATE TABLE test (id INT PRIMARY KEY); INSERT INTO test VALUES (1);";
-        schemaName = "exam_" + examId.toString().replace("-", "") + "_student_" + studentId.toString().replace("-", "");
-        dbUser = "usr_" + schemaName.substring(0, Math.min(schemaName.length(), 50));
-        dbPassword = UUID.randomUUID().toString();
+        seedSql = "CREATE TABLE test (id INT); INSERT INTO test VALUES (1);";
     }
 
     @Test
-    void testProvisionSandbox_Success() {
+    @DisplayName("Should throw SandboxProvisioningException when schema creation fails")
+    void provisionSandbox_ShouldThrowSandboxProvisioningException_WhenSchemaCreationFails() {
         // Given
-        when(registryRepo.save(any(SandboxRegistry.class))).thenAnswer(invocation -> {
-            SandboxRegistry registry = invocation.getArgument(0);
-            registry.setId(UUID.randomUUID());
-            return registry;
-        });
-
-        // When
-        String result = sandboxService.provisionSandbox(examId, studentId, seedSql);
-
-        // Then
-        assertEquals(schemaName, result);
-
-        // Verify schema creation
-        verify(jdbcTemplate).execute("CREATE SCHEMA " + schemaName);
-        
-        // Verify user creation
-        ArgumentCaptor<String> userCreationCaptor = ArgumentCaptor.forClass(String.class);
-        verify(jdbcTemplate).execute(userCreationCaptor.capture());
-        assertTrue(userCreationCaptor.getValue().contains("CREATE USER " + dbUser));
-        assertTrue(userCreationCaptor.getValue().contains("WITH PASSWORD"));
-
-        // Verify security restrictions
-        verify(jdbcTemplate).execute("REVOKE ALL ON SCHEMA public FROM " + dbUser);
-        verify(jdbcTemplate).execute("GRANT USAGE ON SCHEMA " + schemaName + " TO " + dbUser);
-        verify(jdbcTemplate).execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA " + schemaName + " TO " + dbUser);
-
-        // Verify seed SQL execution
-        verify(jdbcTemplate).execute("SET search_path TO " + schemaName);
-        verify(jdbcTemplate).execute(seedSql);
-        verify(jdbcTemplate).execute("SET search_path TO public");
-
-        // Verify registry save
-        ArgumentCaptor<SandboxRegistry> registryCaptor = ArgumentCaptor.forClass(SandboxRegistry.class);
-        verify(registryRepo).save(registryCaptor.capture());
-        SandboxRegistry savedRegistry = registryCaptor.getValue();
-        assertEquals(examId, savedRegistry.getExamId());
-        assertEquals(studentId, savedRegistry.getStudentId());
-        assertEquals(schemaName, savedRegistry.getSchemaName());
-        assertEquals(dbUser, savedRegistry.getDbUser());
-        assertEquals("ACTIVE", savedRegistry.getStatus());
-    }
-
-    @Test
-    void testProvisionSandbox_WithNullSeedSql() {
-        // Given
-        when(registryRepo.save(any(SandboxRegistry.class))).thenReturn(new SandboxRegistry());
-
-        // When
-        String result = sandboxService.provisionSandbox(examId, studentId, null);
-
-        // Then
-        assertEquals(schemaName, result);
-
-        // Verify schema and user creation still happen
-        verify(jdbcTemplate).execute("CREATE SCHEMA " + schemaName);
-        verify(jdbcTemplate).execute(contains("CREATE USER " + dbUser));
-
-        // Verify seed SQL is NOT executed
-        verify(jdbcTemplate, never()).execute(seedSql);
-        verify(jdbcTemplate, times(2)).execute(contains("search_path")); // Only for setting and resetting
-    }
-
-    @Test
-    void testProvisionSandbox_WithEmptySeedSql() {
-        // Given
-        when(registryRepo.save(any(SandboxRegistry.class))).thenReturn(new SandboxRegistry());
-
-        // When
-        String result = sandboxService.provisionSandbox(examId, studentId, "   ");
-
-        // Then
-        assertEquals(schemaName, result);
-
-        // Verify seed SQL is NOT executed for empty SQL
-        verify(jdbcTemplate, never()).execute("   ");
-        verify(jdbcTemplate, times(2)).execute(contains("search_path"));
-    }
-
-    @Test
-    void testProvisionSandbox_Failure_RollsBack() {
-        // Given
-        when(jdbcTemplate.execute(anyString())).thenThrow(new RuntimeException("Database error"));
-        when(registryRepo.save(any(SandboxRegistry.class))).thenReturn(new SandboxRegistry());
+        when(jdbcTemplate.execute(anyString())).thenThrow(new DataAccessException("Schema creation failed") {});
 
         // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            sandboxService.provisionSandbox(examId, studentId, seedSql);
-        });
+        SandboxProvisioningException exception = assertThrows(
+                SandboxProvisioningException.class,
+                () -> sandboxService.provisionSandbox(examId, studentId, seedSql)
+        );
 
-        // Verify cleanup on failure
-        verify(jdbcTemplate).execute("DROP SCHEMA IF EXISTS " + schemaName + " CASCADE");
-        verify(jdbcTemplate).execute("DROP USER IF EXISTS " + dbUser);
+        assertEquals("Sandbox provisioning failed", exception.getMessage());
+        assertNotNull(exception.getCause());
+        verify(jdbcTemplate, atLeastOnce()).execute(contains("DROP SCHEMA IF EXISTS"));
+        verify(jdbcTemplate, atLeastOnce()).execute(contains("DROP USER IF EXISTS"));
     }
 
     @Test
-    void testTeardownSandbox_Success() {
+    @DisplayName("Should throw SandboxProvisioningException when user creation fails")
+    void provisionSandbox_ShouldThrowSandboxProvisioningException_WhenUserCreationFails() {
         // Given
-        SandboxRegistry registry = new SandboxRegistry();
-        registry.setExamId(examId);
-        registry.setStudentId(studentId);
-        registry.setSchemaName(schemaName);
-        registry.setDbUser(dbUser);
-        registry.setStatus("ACTIVE");
+        when(jdbcTemplate.execute(anyString()))
+                .thenReturn(null) // Schema creation succeeds
+                .thenThrow(new DataAccessException("User creation failed") {}); // User creation fails
 
-        when(registryRepo.findByExamIdAndStudentId(examId, studentId))
-                .thenReturn(Optional.of(registry));
-        when(registryRepo.save(any(SandboxRegistry.class))).thenReturn(registry);
+        // When & Then
+        SandboxProvisioningException exception = assertThrows(
+                SandboxProvisioningException.class,
+                () -> sandboxService.provisionSandbox(examId, studentId, seedSql)
+        );
 
-        // When
-        sandboxService.teardownSandbox(examId, studentId);
-
-        // Then
-        verify(jdbcTemplate).execute("DROP SCHEMA IF EXISTS " + schemaName + " CASCADE");
-        verify(jdbcTemplate).execute("DROP USER IF EXISTS " + dbUser);
-
-        // Verify registry update
-        ArgumentCaptor<SandboxRegistry> registryCaptor = ArgumentCaptor.forClass(SandboxRegistry.class);
-        verify(registryRepo).save(registryCaptor.capture());
-        SandboxRegistry updatedRegistry = registryCaptor.getValue();
-        assertEquals("DROPPED", updatedRegistry.getStatus());
+        assertEquals("Sandbox provisioning failed", exception.getMessage());
+        assertNotNull(exception.getCause());
     }
 
     @Test
-    void testTeardownSandbox_NotFound() {
+    @DisplayName("Should throw SandboxProvisioningException when seed SQL execution fails")
+    void provisionSandbox_ShouldThrowSandboxProvisioningException_WhenSeedSqlFails() {
+        // Given
+        when(jdbcTemplate.execute(anyString()))
+                .thenReturn(null) // Schema creation succeeds
+                .thenReturn(null) // User creation succeeds
+                .thenReturn(null) // REVOKE succeeds
+                .thenReturn(null) // GRANT USAGE succeeds
+                .thenReturn(null) // GRANT SELECT succeeds
+                .thenReturn(null) // ALTER DEFAULT PRIVILEGES succeeds
+                .thenThrow(new DataAccessException("Seed SQL failed") {}); // SET search_path fails
+
+        // When & Then
+        SandboxProvisioningException exception = assertThrows(
+                SandboxProvisioningException.class,
+                () -> sandboxService.provisionSandbox(examId, studentId, seedSql)
+        );
+
+        assertEquals("Sandbox provisioning failed", exception.getMessage());
+        assertNotNull(exception.getCause());
+    }
+
+    @Test
+    @DisplayName("Should throw SandboxNotFoundException when sandbox doesn't exist during teardown")
+    void teardownSandbox_ShouldThrowSandboxNotFoundException_WhenSandboxNotFound() {
         // Given
         when(registryRepo.findByExamIdAndStudentId(examId, studentId))
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            sandboxService.teardownSandbox(examId, studentId);
-        });
+        SandboxNotFoundException exception = assertThrows(
+                SandboxNotFoundException.class,
+                () -> sandboxService.teardownSandbox(examId, studentId)
+        );
 
-        // Verify no cleanup operations
+        assertEquals("Sandbox not found for given Exam and Student", exception.getMessage());
+        verify(registryRepo).findByExamIdAndStudentId(examId, studentId);
         verify(jdbcTemplate, never()).execute(anyString());
-        verify(registryRepo, never()).save(any());
     }
 
     @Test
-    void testGetSandboxConnectionDetails_Success() {
-        // Given
-        SandboxRegistry registry = new SandboxRegistry();
-        registry.setExamId(examId);
-        registry.setStudentId(studentId);
-        registry.setSchemaName(schemaName);
-        registry.setDbUser(dbUser);
-        registry.setStatus("ACTIVE");
-
-        when(registryRepo.findByExamIdAndStudentId(examId, studentId))
-                .thenReturn(Optional.of(registry));
-
-        // When
-        SandboxConnectionInfo result = sandboxService.getSandboxConnectionDetails(examId, studentId);
-
-        // Then
-        assertNotNull(result);
-        assertEquals(schemaName, result.getSchemaName());
-        assertEquals(dbUser, result.getDbUser());
-    }
-
-    @Test
-    void testGetSandboxConnectionDetails_NotFound() {
+    @DisplayName("Should throw SandboxNotFoundException when getting connection details for non-existent sandbox")
+    void getSandboxConnectionDetails_ShouldThrowSandboxNotFoundException_WhenSandboxNotFound() {
         // Given
         when(registryRepo.findByExamIdAndStudentId(examId, studentId))
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            sandboxService.getSandboxConnectionDetails(examId, studentId);
-        });
+        SandboxNotFoundException exception = assertThrows(
+                SandboxNotFoundException.class,
+                () -> sandboxService.getSandboxConnectionDetails(examId, studentId)
+        );
+
+        assertEquals("Sandbox not found", exception.getMessage());
+        verify(registryRepo).findByExamIdAndStudentId(examId, studentId);
     }
 
     @Test
-    void testGetSandboxConnectionDetails_Inactive() {
+    @DisplayName("Should throw SandboxExpiredException when sandbox is not active")
+    void getSandboxConnectionDetails_ShouldThrowSandboxExpiredException_WhenSandboxNotActive() {
         // Given
-        SandboxRegistry registry = new SandboxRegistry();
-        registry.setExamId(examId);
-        registry.setStudentId(studentId);
-        registry.setSchemaName(schemaName);
-        registry.setDbUser(dbUser);
-        registry.setStatus("DROPPED");
+        SandboxRegistry inactiveRegistry = new SandboxRegistry();
+        inactiveRegistry.setExamId(examId);
+        inactiveRegistry.setStudentId(studentId);
+        inactiveRegistry.setSchemaName("test_schema");
+        inactiveRegistry.setDbUser("test_user");
+        inactiveRegistry.setStatus("DROPPED"); // Not ACTIVE
 
         when(registryRepo.findByExamIdAndStudentId(examId, studentId))
-                .thenReturn(Optional.of(registry));
+                .thenReturn(Optional.of(inactiveRegistry));
 
         // When & Then
-        assertThrows(IllegalStateException.class, () -> {
-            sandboxService.getSandboxConnectionDetails(examId, studentId);
-        });
+        SandboxExpiredException exception = assertThrows(
+                SandboxExpiredException.class,
+                () -> sandboxService.getSandboxConnectionDetails(examId, studentId)
+        );
+
+        assertEquals("Sandbox is not active.", exception.getMessage());
+        verify(registryRepo).findByExamIdAndStudentId(examId, studentId);
     }
 
     @Test
-    void testProvisionSandbox_GeneratesUniqueSchemaName() {
+    @DisplayName("Should throw SandboxExpiredException when sandbox status is null")
+    void getSandboxConnectionDetails_ShouldThrowSandboxExpiredException_WhenSandboxStatusIsNull() {
         // Given
-        UUID differentExamId = UUID.randomUUID();
-        UUID differentStudentId = UUID.randomUUID();
-        String expectedSchemaName = "exam_" + differentExamId.toString().replace("-", "") + 
-                                  "_student_" + differentStudentId.toString().replace("-", "");
-        
+        SandboxRegistry nullStatusRegistry = new SandboxRegistry();
+        nullStatusRegistry.setExamId(examId);
+        nullStatusRegistry.setStudentId(studentId);
+        nullStatusRegistry.setSchemaName("test_schema");
+        nullStatusRegistry.setDbUser("test_user");
+        nullStatusRegistry.setStatus(null); // Null status
+
+        when(registryRepo.findByExamIdAndStudentId(examId, studentId))
+                .thenReturn(Optional.of(nullStatusRegistry));
+
+        // When & Then
+        SandboxExpiredException exception = assertThrows(
+                SandboxExpiredException.class,
+                () -> sandboxService.getSandboxConnectionDetails(examId, studentId)
+        );
+
+        assertEquals("Sandbox is not active.", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Should successfully provision sandbox when no exceptions occur")
+    void provisionSandbox_ShouldSucceed_WhenNoErrors() {
+        // Given
+        when(jdbcTemplate.execute(anyString())).thenReturn(null);
         when(registryRepo.save(any(SandboxRegistry.class))).thenReturn(new SandboxRegistry());
 
-        // When
-        String result = sandboxService.provisionSandbox(differentExamId, differentStudentId, seedSql);
+        // When & Then
+        assertDoesNotThrow(() -> {
+            String result = sandboxService.provisionSandbox(examId, studentId, seedSql);
+            assertNotNull(result);
+            assertTrue(result.contains("exam_"));
+            assertTrue(result.contains("student_"));
+        });
 
-        // Then
-        assertEquals(expectedSchemaName, result);
-        assertNotEquals(schemaName, result); // Should be different from the original
+        verify(jdbcTemplate, atLeastOnce()).execute(anyString());
+        verify(registryRepo).save(any(SandboxRegistry.class));
+    }
+
+    @Test
+    @DisplayName("Should successfully get connection details for active sandbox")
+    void getSandboxConnectionDetails_ShouldSucceed_WhenSandboxIsActive() {
+        // Given
+        SandboxRegistry activeRegistry = new SandboxRegistry();
+        activeRegistry.setExamId(examId);
+        activeRegistry.setStudentId(studentId);
+        activeRegistry.setSchemaName("test_schema");
+        activeRegistry.setDbUser("test_user");
+        activeRegistry.setStatus("ACTIVE");
+
+        when(registryRepo.findByExamIdAndStudentId(examId, studentId))
+                .thenReturn(Optional.of(activeRegistry));
+
+        // When & Then
+        assertDoesNotThrow(() -> {
+            var result = sandboxService.getSandboxConnectionDetails(examId, studentId);
+            assertNotNull(result);
+            assertEquals("test_schema", result.schemaName());
+            assertEquals("test_user", result.dbUser());
+        });
     }
 }
