@@ -17,10 +17,10 @@ import java.util.function.Function;
 @Component
 public class JwtUtil {
 
-    @Value("${app.jwt.secret}")
+    @Value("${queryme.app.jwtSecret:======================QueryMeApplicationSecretKeyMustBeLongEnough======================}")
     private String secretKey;
 
-    @Value("${app.jwt.expiration-ms}")
+    @Value("${queryme.app.jwtExpirationMs:86400000}")
     private long expirationMs;
 
     // ─── Generate Token ───────────────────────────────────────────────────────
@@ -82,8 +82,7 @@ public class JwtUtil {
     // ─── Signing Key ──────────────────────────────────────────────────────────
 
     private SecretKey getSigningKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey); // ✅ FIXED
-        return Keys.hmacShaKeyFor(keyBytes);
+        return Keys.hmacShaKeyFor(secretKey.getBytes());
     }
 }
 

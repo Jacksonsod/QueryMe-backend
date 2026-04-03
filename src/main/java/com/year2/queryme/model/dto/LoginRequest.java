@@ -1,13 +1,17 @@
 package com.year2.queryme.model.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+@Getter
+@Setter
 public class LoginRequest {
-    private String email;
-    private String password;
+  @NotBlank
+  @Email
+  private String email;
+
+  @NotBlank
+  private String password;
 }

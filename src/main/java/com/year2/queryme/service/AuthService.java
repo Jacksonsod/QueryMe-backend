@@ -1,121 +1,80 @@
 package com.year2.queryme.service;
 
 import com.year2.queryme.model.User;
+import com.year2.queryme.model.enums.UserTypes;
+import com.year2.queryme.model.dto.JwtResponse;
 import com.year2.queryme.model.dto.LoginRequest;
-import com.year2.queryme.model.dto.LoginResponse;
+import com.year2.queryme.model.dto.MessageResponse;
 import com.year2.queryme.model.dto.SignupRequest;
 import com.year2.queryme.repository.UserRepository;
-import com.year2.queryme.security.JwtUtil;
+import com.year2.queryme.security.JwtUtils;
+import com.year2.queryme.security.UserDetailsImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class AuthService {
 
     @Autowired
-    private AuthenticationManager authenticationManager;
+    AuthenticationManager authenticationManager;
 
     @Autowired
-    private UserRepository userRepository;
+    UserRepository userRepository;
 
     @Autowired
-    private JwtUtil jwtUtil;
+    PasswordEncoder encoder;
 
     @Autowired
-    private StudentService studentService;
-
-    @Autowired
-    private TeacherService teacherService;
-
-    @Autowired
-    private AdminService adminService;
-
-    @Autowired
-    private GuestService guestService;
+    JwtUtils jwtUtils;
 
     public ResponseEntity<?> authenticateUser(LoginRequest loginRequest) {
-        
-        // 1. Authenticate using AuthenticationManager
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword()));
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
-        
-        // 2. Load User Details and generate JWT
-        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-        User user = userRepository.findByEmail(userDetails.getUsername())
-                .orElseThrow(() -> new RuntimeException("User not found: " + userDetails.getUsername()));
-        
-        String jwt = jwtUtil.generateToken(user.getEmail(), user.getRole());
+        String jwt = jwtUtils.generateJwtToken(authentication);
 
-        // 3. Construct LoginResponse
-        LoginResponse response = new LoginResponse(
-                jwt,
-                user.getRole(),
-                user.getEmail(),
-                user.getId(),
-                "Login successful!"
-        );
+        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+        List<String> roles = userDetails.getAuthorities().stream()
+                .map(item -> item.getAuthority())
+                .collect(Collectors.toList());
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(new JwtResponse(jwt,
+                userDetails.getId(),
+                userDetails.getEmail(),
+                userDetails.getName(),
+                roles));
     }
 
     public ResponseEntity<?> registerUser(SignupRequest signUpRequest) {
-        
         if (userRepository.existsByEmail(signUpRequest.getEmail())) {
-            return ResponseEntity.badRequest().body("Error: Email is already in use!");
+            return ResponseEntity
+                    .badRequest()
+                    .body(new MessageResponse("Error: Email is already in use!"));
         }
 
-        String role = signUpRequest.getRole().toUpperCase();
-        
-        switch (role) {
-            case "STUDENT":
-                if (signUpRequest.getCourseId() == null) {
-                   return ResponseEntity.badRequest().body("Error: Course ID is required for Students");
-                }
-                studentService.registerStudent(
-                        signUpRequest.getEmail(),
-                        signUpRequest.getPassword(),
-                        signUpRequest.getFullName(),
-                        signUpRequest.getCourseId(),
-                        signUpRequest.getClassGroupId()
-                );
-                break;
-                
-            case "TEACHER":
-                teacherService.registerTeacher(
-                        signUpRequest.getEmail(),
-                        signUpRequest.getPassword(),
-                        signUpRequest.getFullName()
-                );
-                break;
+        UserTypes role = (signUpRequest.getRole() != null) ? signUpRequest.getRole() : UserTypes.STUDENT;
 
-            case "ADMIN":
-                adminService.registerAdmin(
-                        signUpRequest.getEmail(),
-                        signUpRequest.getPassword(),
-                        signUpRequest.getFullName()
-                );
-                break;
+        User user = User.builder()
+                .email(signUpRequest.getEmail())
+                .name(signUpRequest.getName())
+                .passwordHash(encoder.encode(signUpRequest.getPassword()))
+                .role(role)
+                .createdAt(LocalDateTime.now())
+                .build();
 
-            case "GUEST":
-                guestService.registerGuest(
-                        signUpRequest.getEmail(),
-                        signUpRequest.getPassword(),
-                        signUpRequest.getFullName()
-                );
-                break;
+        userRepository.save(user);
 
-            default:
-                return ResponseEntity.badRequest().body("Error: Invalid role provided!");
-        }
-
-        return ResponseEntity.ok("User registered successfully as " + role);
+        return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
     }
 }

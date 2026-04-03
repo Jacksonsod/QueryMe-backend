@@ -8,6 +8,7 @@ import com.year2.queryme.repository.ClassGroupRepository;
 import com.year2.queryme.repository.CourseRepository;
 import com.year2.queryme.repository.StudentRepository;
 import com.year2.queryme.repository.UserRepository;
+import com.year2.queryme.model.enums.UserTypes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -39,9 +40,9 @@ public class StudentService {
         // 1. Create User with BCrypt-encoded password
         User user = User.builder()
                 .email(email)
-                .username(email)
-                .password(passwordEncoder.encode(password))
-                .role("STUDENT")
+                .passwordHash(passwordEncoder.encode(password))
+                .role(UserTypes.STUDENT)
+                .name(fullName)
                 .build();
         userRepository.save(user);
 
@@ -69,6 +70,18 @@ public class StudentService {
 
         if (data.containsKey("fullName")) {
             student.setFullName(data.get("fullName"));
+            User user = student.getUser();
+            if (user != null) {
+                user.setName(data.get("fullName"));
+                userRepository.save(user);
+            }
+        }
+        if (data.containsKey("password")) {
+            User user = student.getUser();
+            if (user != null) {
+                user.setPasswordHash(passwordEncoder.encode(data.get("password")));
+                userRepository.save(user);
+            }
         }
         if (data.containsKey("courseId")) {
             Course course = courseRepository.findById(Long.parseLong(data.get("courseId")))

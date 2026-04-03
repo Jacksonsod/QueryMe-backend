@@ -1,102 +1,700 @@
-# 🎓 QueryMe - User & Student Management System (Group F)
+# QueryMe Backend
 
-QueryMe is a robust Spring Boot backend designed to handle multi-role educational management. It provides a secure, role-based architecture for managing Teachers, Students, Admins, and Guests, alongside academic structures like Courses and Class Groups.
 
----
-
-## 🚀 Core Features
-
-- **Multi-Role Authentication**: JWT-based security supporting 4 distinct roles (Admin, Teacher, Student, Guest).
-- **Academic Management**: Teacher-led course creation and student registration.
-- **Profile Orchestration**: Dynamic profile management for both educators and learners.
-- **Resilient Database Mapping**: Built-in sanitization for legacy database compatibility (handling ID padding and binary mismatches).
-- **Automated Schema Repair**: Self-healing database initialization on startup.
 
 ---
 
-## 🛠️ Technology Stack
+## Table of Contents
 
-- **Framework**: Spring Boot 3.4.1
-- **Language**: Java 21
-- **Security**: Spring Security & Structured JWT (JSON Web Tokens)
-- **Database**: MySQL / PostgreSQL Support
-- **Persistence**: Spring Data JPA (Hibernate)
-- **Tooling**: Lombok, Maven, Jakarta Validation
+- [Project Setup](#project-setup)
+- [Group J — Auth Module](#group-j--auth-module)
+- [Group A — Exam Module](#group-a--exam-module)
+- [Group D — Sandbox Environment Module](#group-d--sandbox-environment-module)
 
 ---
 
-## 📂 Getting Started
+### Environment Variables
 
-### 1. Prerequisites
-- **JDK 21** or higher.
-- **MySQL Instance** (The application is currently configured for a remote instance at `35.238.161.33`).
 
-### 2. Installation
-Clone the repository and compile the project using the included Maven wrapper:
-```powershell
-./mvnw clean install
 ```
 
-### 3. Running the Application
-```powershell
+### Run the server
+
+bash
+
 ./mvnw spring-boot:run
 ```
-The server will be available at: `http://localhost:8080`
+
+Server starts on **`http://localhost:8080`**
+
+> On first startup, a default ADMIN account is automatically created using `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+> Change these before deploying to any shared environment.
+# Optional — override default admin seeded on startup
+ADMIN_EMAIL=admin@gmail.com 
+
+ADMIN_PASSWORD=Admin@1234
+---
+
+# Group J — Auth Module
+
+
+Every HTTP request on the platform passes through the JWT filter maintained by this group.
+This section documents how to authenticate and how other groups should handle tokens.
+
+## Database Schema
+
+Roles are **NOT** a separate table. They are stored as a `varchar` column directly
+on the `users` table — one table, no join table required.
+
+```sql
+CREATE TABLE users (
+    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    email         VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role          VARCHAR(20)  NOT NULL,   -- 'ADMIN' | 'TEACHER' | 'STUDENT' | 'GUEST'
+    created_at    TIMESTAMP    DEFAULT now()
+);
+```
+
+## Roles Reference
+
+| Role | Description |
+|---|---|
+| `ADMIN` | Full access — manage users, platform-wide visibility |
+| `TEACHER` | Create and manage exams, view all student results |
+| `STUDENT` | Participate in assigned exams, view own results |
+| `GUEST` | Read-only, limited access |
+
+## Base URL
+
+```
+http://localhost:8080/api/auth
+http://localhost:8080/api/users
+```
+
+## Auth Endpoints (No token required)
+
+### Register a new user
+
+```
+POST /api/auth/signup
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "email": "alice@gmail.com",
+  "password": "Secret@99",
+  "role": "STUDENT"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | string | yes | Must be unique |
+| `password` | string | yes | Min 6, max 40 characters |
+| `role` | string | no | `ADMIN`, `TEACHER`, `STUDENT`, `GUEST` — defaults to `STUDENT` |
+
+**Response `200 OK`:**
+
+```json
+{
+  "message": "User registered successfully!"
+}
+```
+
+**Error — email already in use:**
+
+```json
+{
+  "message": "Error: Email is already in use!"
+}
+```
+
+**Error — invalid role:**
+
+```json
+{
+  "message": "Error: Invalid role 'XYZ'. Valid values: ADMIN, TEACHER, STUDENT, GUEST"
+}
+```
 
 ---
 
-## 👤 Role-Based Guide (Postman Workflow)
+### Login
 
-### 👨‍🏫 TEACHER Flow
-*Goal: Manage curriculum and register students.*
-1.  **Signup / Login**: Sign in as `emilien@gmail.com` | `emilien123`.
-2.  **Course Creation**: `POST /api/courses` to create your classroom.
-3.  **Student Registration**: `POST /api/students/register` using your Teacher token.
+```
+POST /api/auth/signin
+Content-Type: application/json
+```
 
-### 👩‍🎓 STUDENT Flow
-*Goal: Profile management and course interaction.*
-1.  **Login**: Use credentials provided by your teacher (e.g., `josianenikuze45@gmail.com` | `josiane123`).
-2.  **Profile**: `GET /api/students/profile` to view your data.
-3.  **Update**: `PUT /api/students/{id}` to refresh your info.
+Request body:
 
-### 🛡️ ADMIN Flow
-*Goal: System-wide oversight.*
-1.  **Login**: Sign in as `admin@queryme.com` | `Admin@123`.
-2.  **Audit**: Use `GET /api/students` to see the full register of active learners.
+```json
+{
+  "email": "alice@gmail.com",
+  "password": "Secret@99"
+}
+```
 
----
+**Response `200 OK`:**
 
-## 📜 Full API Reference
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "type": "Bearer",
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "email": "alice@gmail.com",
+  "roles": ["STUDENT"]
+}
+```
 
-| Category | Method | Endpoint | Description | Auth Required |
-| :--- | :--- | :--- | :--- | :--- |
-| **Authentication** | `POST` | `/api/auth/signin` | Authenticate & get JWT Token | Public |
-| | `POST` | `/api/auth/signup` | Self-register a new user | Public |
-| **Academic** | `POST` | `/api/courses` | Create a new Course | Teacher/Admin |
-| | `GET` | `/api/courses` | List all available Courses | Any |
-| | `POST` | `/api/class-groups` | Create an Academic Class Group | Teacher/Admin |
-| | `GET` | `/api/class-groups` | List all Class Groups | Any |
-| | `GET` | `/api/class-groups/course/{id}` | Get groups for a specific Course | Any |
-| **Students** | `POST` | `/api/students/register` | Register a new Student | Teacher/Admin |
-| | `GET` | `/api/students` | List all Students | Admin |
-| | `GET` | `/api/students/{id}` | Get specific Student details | Any |
-| | `PUT` | `/api/students/{id}` | Update Student profile | Student/Admin |
-| **Teachers** | `POST` | `/api/teachers/register` | Register a new Teacher | Admin |
-| | `GET` | `/api/teachers` | List all Teachers | Admin |
-| | `PUT` | `/api/teachers/{id}` | Update Teacher profile | Teacher/Admin |
-| **Admins** | `POST` | `/api/admins/register` | Register a new Admin | Admin |
-| | `GET` | `/api/admins` | List all Admins | Admin |
-| | `PUT` | `/api/admins/{id}` | Update Admin profile | Admin |
-| **Guests** | `POST` | `/api/guests/register` | Register a new Guest | Public |
-| | `GET` | `/api/guests` | List all Guests | Admin |
-| | `PUT` | `/api/guests/{id}` | Update Guest profile | Guest/Admin |
+> Save the `token` value — you must send it in every subsequent request.
 
 ---
 
-## 🔧 Maintenance & Self-Healing
-If the application encounters database ID mismatches (common in certain legacy MySQL environments), the built-in `DatabaseInitializer` and `StringLongConverter` will automatically sanitize and repair the schema on the fly. 
+## User Endpoints (Token required)
 
-> **Tip**: If you receive a `403 Forbidden` after a long session, simply re-run the **Login** request to refresh your JWT token.
+Include the token in every request:
+
+```
+Authorization: Bearer <your_token_here>
+```
 
 ---
-*© 2026 Group F - Advanced User Management Module*
+
+### Get own profile
+
+```
+GET /api/users/me
+Authorization: Bearer <token>
+```
+
+Available to **any authenticated role**.
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "email": "alice@gmail.com",
+  "role": "STUDENT",
+  "createdAt": "2026-04-02T21:26:38"
+}
+```
+
+---
+
+### List all users *(ADMIN only)*
+
+```
+GET /api/users
+Authorization: Bearer <admin_token>
+```
+
+**Response `200 OK`:** array of user objects
+
+---
+
+### Filter users by role *(ADMIN or TEACHER)*
+
+```
+GET /api/users/role/{role}
+Authorization: Bearer <admin_or_teacher_token>
+```
+
+Example:
+
+```
+GET /api/users/role/STUDENT
+```
+
+**Response `200 OK`:** array of users with that role
+
+---
+
+### Get user by ID *(ADMIN only)*
+
+```
+GET /api/users/{id}
+Authorization: Bearer <admin_token>
+```
+
+**Response `200 OK`:** single user object, or `404 Not Found`
+
+---
+
+### Delete user *(ADMIN only)*
+
+```
+DELETE /api/users/{id}
+Authorization: Bearer <admin_token>
+```
+
+**Response `200 OK`:**
+
+```json
+"User deleted successfully."
+```
+
+---
+
+## Route Security Reference
+
+All routes outside `/api/auth/**` require a valid JWT. Unauthorized requests return `401`.
+Requests with a valid JWT but insufficient role return `403`.
+
+| Route pattern | Minimum role |
+|---|---|
+| `POST /api/auth/**` | Public |
+| `GET /api/users/me` | Any authenticated user |
+| `GET/DELETE /api/users/**` | `ADMIN` |
+| `GET /api/users/role/**` | `ADMIN` or `TEACHER` |
+| `/api/exams/**` | `TEACHER` or `ADMIN` |
+| `/api/questions/**` | `TEACHER` or `ADMIN` |
+| `/api/submissions/**` | `STUDENT`, `TEACHER`, or `ADMIN` |
+| `/api/results/**` | `STUDENT`, `TEACHER`, or `ADMIN` |
+
+## How to Integrate (For Other Groups)
+
+### Protect your endpoints with `@PreAuthorize`
+
+```java
+import org.springframework.security.access.prepost.PreAuthorize;
+
+@RestController
+@RequestMapping("/api/exams")
+public class ExamController {
+
+    // Only teachers and admins can create exams
+    @PostMapping
+    @PreAuthorize("hasAnyAuthority('TEACHER', 'ADMIN')")
+    public ResponseEntity<?> createExam(...) { ... }
+
+    // Students, teachers, and admins can view published exams
+    @GetMapping("/published")
+    @PreAuthorize("hasAnyAuthority('STUDENT', 'TEACHER', 'ADMIN')")
+    public ResponseEntity<?> getPublishedExams() { ... }
+}
+```
+
+### Get the current user's details inside a service
+
+```java
+import com.year2.queryme.security.UserDetailsImpl;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+// Inside any @Service or @RestController method:
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+UserDetailsImpl currentUser = (UserDetailsImpl) auth.getPrincipal();
+
+UUID userId  = currentUser.getId();
+String email = currentUser.getEmail();
+String role  = currentUser.getAuthorities().iterator().next().getAuthority(); // e.g. "STUDENT"
+```
+
+### Quick Postman test flow
+
+1. `POST /api/auth/signup` — create a STUDENT, a TEACHER, and use the default ADMIN
+2. `POST /api/auth/signin` — login with each; copy the returned `token`
+3. Set **Authorization → Bearer Token** in Postman using the copied token
+4. Call protected endpoints and verify the correct `200` / `403` responses per role
+
+---
+
+# Group A — Exam Module
+
+**Base URL:** `http://localhost:8080/api/exams`
+
+All endpoints require a valid JWT token:
+
+```
+Authorization: Bearer <token>
+```
+
+## Exam Status Lifecycle
+
+```
+DRAFT → PUBLISHED → CLOSED
+  ↑________↓
+ (unpublish)
+```
+
+## Endpoints
+
+### Create an exam
+
+```
+POST /api/exams
+```
+
+**Request body:**
+
+```json
+{
+  "courseId": "uuid-of-course",
+  "title": "Database CAT 1",
+  "description": "Optional description",
+  "visibilityMode": "IMMEDIATE",
+  "timeLimitMins": 60,
+  "maxAttempts": 1,
+  "seedSql": "CREATE TABLE students (id INT PRIMARY KEY, name VARCHAR(100), grade INT); INSERT INTO students VALUES (1, 'Alice', 85);"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `courseId` | string | yes | UUID from Group F |
+| `title` | string | yes | |
+| `description` | string | no | |
+| `visibilityMode` | string | yes | `IMMEDIATE`, `END_OF_EXAM`, `NEVER` |
+| `timeLimitMins` | integer | no | `null` = no time limit |
+| `maxAttempts` | integer | no | Defaults to `1` |
+| `seedSql` | string | yes | SQL for sandbox seeding — Group D uses this |
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "36b28504-1902-4ac4-89a1-1271f0ead90e",
+  "courseId": "uuid-of-course",
+  "title": "Database CAT 1",
+  "description": "Optional description",
+  "status": "DRAFT",
+  "visibilityMode": "IMMEDIATE",
+  "timeLimitMins": 60,
+  "maxAttempts": 1,
+  "seedSql": "CREATE TABLE...",
+  "createdAt": "2026-04-01T11:16:10.448",
+  "publishedAt": null
+}
+```
+
+---
+
+### Get exam by ID
+
+```
+GET /api/exams/{examId}
+```
+
+**Response `200 OK`:** full exam object
+
+---
+
+### Get exams by course
+
+```
+GET /api/exams/course/{courseId}
+```
+
+**Response `200 OK`:** array of exam objects for that course
+
+---
+
+### Get all published exams
+
+```
+GET /api/exams/published
+```
+
+**Response `200 OK`:** array of exams where `status = PUBLISHED`
+
+---
+
+### Update an exam
+
+```
+PUT /api/exams/{examId}
+```
+
+> Only allowed when `status = DRAFT`
+
+**Request body** (all fields optional):
+
+```json
+{
+  "title": "Updated title",
+  "description": "Updated description",
+  "visibilityMode": "END_OF_EXAM",
+  "timeLimitMins": 90,
+  "maxAttempts": 2,
+  "seedSql": "CREATE TABLE..."
+}
+```
+
+**Response `200 OK`:** updated exam object
+
+**Error if not DRAFT:**
+
+```json
+{ "message": "Only DRAFT exams can be edited" }
+```
+
+---
+
+### Publish an exam
+
+```
+PATCH /api/exams/{examId}/publish
+```
+
+Validation before publish:
+- Status must be `DRAFT`
+- `seedSql` must not be empty
+- `visibilityMode` must be set
+
+**Response `200 OK`:**
+
+```json
+{
+  "status": "PUBLISHED",
+  "publishedAt": "2026-04-01T11:20:00.000"
+}
+```
+
+---
+
+### Unpublish an exam
+
+```
+PATCH /api/exams/{examId}/unpublish
+```
+
+> Moves `PUBLISHED` back to `DRAFT`
+
+**Response `200 OK`:**
+
+```json
+{
+  "status": "DRAFT",
+  "publishedAt": null
+}
+```
+
+**Error if not PUBLISHED:**
+
+```json
+{ "message": "Only PUBLISHED exams can be unpublished" }
+```
+
+---
+
+### Close an exam
+
+```
+PATCH /api/exams/{examId}/close
+```
+
+> Moves `PUBLISHED` to `CLOSED`. Cannot be reversed.
+
+**Error if not PUBLISHED:**
+
+```json
+{ "message": "Only PUBLISHED exams can be closed" }
+```
+
+---
+
+### Delete an exam
+
+```
+DELETE /api/exams/{examId}
+```
+
+> Only `DRAFT` exams can be deleted
+
+**Response `204 No Content`**
+
+**Error if not DRAFT:**
+
+```json
+{ "message": "Only DRAFT exams can be deleted" }
+```
+
+---
+
+## Visibility Mode Reference
+
+| Value | Meaning |
+|---|---|
+| `IMMEDIATE` | Student sees results right after submitting |
+| `END_OF_EXAM` | Student sees results only after exam is closed |
+| `NEVER` | Results never shown to student |
+
+---
+
+## Error Reference
+
+| Status | Meaning |
+|---|---|
+| `200 OK` | Success |
+| `204 No Content` | Delete succeeded |
+| `401 Unauthorized` | Missing or invalid JWT token |
+| `403 Forbidden` | Valid token but insufficient role |
+| `500` | Business rule violation — check `message` field |
+
+---
+
+# Group D — Sandbox Environment Module
+
+**Overview:** This module dynamically provisions and manages isolated PostgreSQL schemas
+for individual student exam sessions. Each student gets a private schema seeded with the
+exam dataset, so queries cannot affect other students or the application database.
+
+## Architecture
+
+### Security Model
+
+- **Isolation**: Each student gets a unique schema (e.g., `exam_123_student_456`) and a dedicated database user with randomly generated credentials.
+- **Blast Radius Containment**: Students are explicitly revoked access to the `public` schema and granted full CRUD permissions only on their assigned schema.
+- **Automated Cleanup**: Expired sandboxes are automatically torn down to free up server resources.
+
+### Key Components
+
+| Class | Role |
+|---|---|
+| `SandboxService` | Primary interface — provision, retrieve connection info, teardown |
+| `SandboxRegistry` | JPA entity tracking active sandboxes in the `sandbox_registry` table |
+| `SandboxCleanupScheduler` | Runs every 5 minutes to remove expired sandboxes |
+## Overview
+
+The Sandbox Environment Module provides schema-based PostgreSQL isolation for exam execution within the QueryMe monolith. It provisions a dedicated schema for each exam and student pairing, optionally applies seed data, and records sandbox metadata for lifecycle tracking.
+
+This module uses the shared database user `level6year2` for schema-based isolation. The shared user remains consistent across sandbox operations while isolation is achieved through dedicated PostgreSQL schemas.
+
+## Key Features
+
+### Validation
+Before provisioning a sandbox, the service validates that both the exam and the student exist in the system. This prevents invalid or orphaned sandbox creation and keeps the workflow aligned with the monolith’s existing records.
+
+### Isolation
+Each sandbox is isolated through a unique schema derived from the exam and student identifiers. This keeps student execution separated from the rest of the application data while still operating in the shared database environment.
+
+### 63-Character Safety
+PostgreSQL identifiers are limited to 63 characters. The sandbox module applies schema naming rules that keep generated identifiers safe, normalized, and compatible with PostgreSQL limits.
+
+## API Documentation
+
+Base path: `http://localhost:8080/api/sandboxes`
+
+### Endpoint Summary
+
+| Endpoint | Method | Purpose | Input | Success Response |
+|---|---|---|---|---|
+| `/provision` | POST | Provision or reuse a sandbox schema for an exam/student pair | JSON body with `examId`, `studentId`, optional `seedSql` | `201 Created` with `schemaName`, `dbUsername` |
+| `/{examId}/students/{studentId}` | GET | Retrieve active sandbox connection details | `examId` and `studentId` as path variables | `200 OK` with `schemaName`, `dbUsername` |
+| `/{examId}/students/{studentId}` | DELETE | Tear down sandbox schema and update registry status | `examId` and `studentId` as path variables | `200 OK` with success `message` |
+
+### How These Endpoints Work
+
+| Step | Endpoint | What Happens Internally |
+|---|---|---|
+| 1 | `POST /provision` | Validates exam and student records, generates schema name, creates schema if missing, optionally executes `seedSql`, stores registry metadata, returns sandbox connection info. |
+| 2 | `GET /{examId}/students/{studentId}` | Looks up sandbox registry by exam and student, confirms sandbox status is active, then returns schema and database username. |
+| 3 | `DELETE /{examId}/students/{studentId}` | Finds the sandbox registry record, drops the schema, updates status, and returns a confirmation message. |
+
+### JSON Sample Data
+
+#### 1) Provision Sandbox
+
+Request (`POST /api/sandboxes/provision`):
+
+```json
+{
+  "examId": "7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11",
+  "studentId": "2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73",
+  "seedSql": "CREATE TABLE IF NOT EXISTS answers (id UUID PRIMARY KEY, answer_text VARCHAR(255)); INSERT INTO answers (id, answer_text) VALUES ('9d4f8a89-7c7f-4a98-9cc5-ae9e1d6c5f10', 'Sample answer');"
+}
+```
+
+Response (`201 Created`):
+
+```json
+{
+  "schemaName": "exam_7f8c2f5f1ad24a8fa4e281f6cb2e4d11_student_2c39c7f985f84b2a90c8d4f4b5d99f73",
+  "dbUsername": "level6year2"
+}
+```
+
+#### 2) Get Sandbox Connection Details
+
+Request (`GET /api/sandboxes/7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11/students/2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73`)
+
+Response (`200 OK`):
+
+```json
+{
+  "schemaName": "exam_7f8c2f5f1ad24a8fa4e281f6cb2e4d11_student_2c39c7f985f84b2a90c8d4f4b5d99f73",
+  "dbUsername": "level6year2"
+}
+```
+
+#### 3) Tear Down Sandbox
+
+Request (`DELETE /api/sandboxes/7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11/students/2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73`)
+
+    public void executeStudentQuery(UUID examId, UUID studentId,
+                                    String seedSql, String studentQuery) {
+        // 1. Provision sandbox
+        String schemaName = sandboxService.provisionSandbox(examId, studentId, seedSql);
+
+        // 2. Get connection details
+        SandboxConnectionInfo info = sandboxService.getSandboxConnectionDetails(examId, studentId);
+        String dbUsername = info.dbUsername();
+        String dbPassword = info.dbPassword();
+        String schema     = info.schemaName();
+
+        // 3. Execute student query using the connection details
+        // (use JdbcTemplate or a dedicated DataSource pointed at the schema)
+
+        // 4. Teardown after execution
+        sandboxService.teardownSandbox(examId, studentId);
+    }
+}
+```
+
+### Method Reference
+
+| Method | Parameters | Returns | Description |
+|---|---|---|---|
+| `provisionSandbox` | `examId`, `studentId`, `seedSql` | `String` schemaName | Creates schema, user, seeds data |
+| `getSandboxConnectionDetails` | `examId`, `studentId` | `SandboxConnectionInfo` | Returns schema + credentials |
+| `teardownSandbox` | `examId`, `studentId` | `void` | Drops schema and user permanently |
+
+> Handle exceptions for all three calls — provisioning can fail if the DB user lacks `CREATEROLE`.
+
+---
+Response (`200 OK`):
+
+```json
+{
+  "message": "Sandbox successfully dropped for examId=7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11 and studentId=2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73"
+}
+```
+
+### Error Samples
+
+Validation failure example (`400/500` depending on global exception mapping):
+
+```json
+{
+  "message": "Exam not found in registry"
+}
+```
+
+Authorization failure example:
+
+```json
+{
+  "path": "/api/sandboxes/provision",
+  "error": "Unauthorized",
+  "message": "Full authentication is required to access this resource",
+  "status": 401
+}
+```
+
+*For questions about the Auth module contact `groupj.queryme@gmail.com`*

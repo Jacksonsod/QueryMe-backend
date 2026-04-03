@@ -14,7 +14,6 @@ public class Admin {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Convert(converter = StringLongConverter.class)
     private Long id;
 
     @Column(nullable = false)

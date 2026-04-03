@@ -4,6 +4,7 @@ import com.year2.queryme.model.Guest;
 import com.year2.queryme.model.User;
 import com.year2.queryme.repository.GuestRepository;
 import com.year2.queryme.repository.UserRepository;
+import com.year2.queryme.model.enums.UserTypes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -28,8 +29,9 @@ public class GuestService {
         // 1. Create User
         User user = User.builder()
                 .email(email)
-                .password(passwordEncoder.encode(password))
-                .role("GUEST")
+                .passwordHash(passwordEncoder.encode(password))
+                .role(UserTypes.GUEST)
+                .name(fullName)
                 .build();
         userRepository.save(user);
 
@@ -49,6 +51,18 @@ public class GuestService {
 
         if (data.containsKey("fullName")) {
             guest.setFullName(data.get("fullName"));
+            User user = guest.getUser();
+            if (user != null) {
+                user.setName(data.get("fullName"));
+                userRepository.save(user);
+            }
+        }
+        if (data.containsKey("password")) {
+            User user = guest.getUser();
+            if (user != null) {
+                user.setPasswordHash(passwordEncoder.encode(data.get("password")));
+                userRepository.save(user);
+            }
         }
 
         return guestRepository.save(guest);
