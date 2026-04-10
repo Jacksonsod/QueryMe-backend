@@ -1,4 +1,3 @@
-
 # QueryMe Backend
 
 ---
@@ -655,104 +654,89 @@ AnswerKeyDto answerKey = questionService.getAnswerKeyForQuestion(questionId);
 
 # Group D — Sandbox Environment Module
 
-**Overview:** This module dynamically provisions and manages isolated PostgreSQL schemas
-for individual student exam sessions. Each student gets a private schema seeded with the
-exam dataset, so queries cannot affect other students or the application database.
-
-## Architecture
-
-### Security Model
-
-- **Isolation**: Each student gets a unique schema (e.g., `exam_123_student_456`) and a dedicated database user with randomly generated credentials.
-- **Blast Radius Containment**: Students are explicitly revoked access to the `public` schema and granted full CRUD permissions only on their assigned schema.
-- **Automated Cleanup**: Expired sandboxes are automatically torn down to free up server resources.
-
-### Key Components
-
-| Class | Role |
-|---|---|
-| `SandboxService` | Primary interface — provision, retrieve connection info, teardown |
-| `SandboxRegistry` | JPA entity tracking active sandboxes in the `sandbox_registry` table |
-| `SandboxCleanupScheduler` | Runs every 5 minutes to remove expired sandboxes |
-
 ## Overview
 
-The Sandbox Environment Module provides schema-based PostgreSQL isolation for exam execution within the QueryMe monolith. It provisions a dedicated schema for each exam and student pairing, optionally applies seed data, and records sandbox metadata for lifecycle tracking.
+The Sandbox Environment Module dynamically provisions isolated PostgreSQL schemas for student exam sessions. It uses schema-based isolation so each student works in a dedicated database namespace without affecting other students or application data.
 
-This module uses the shared database user `level6year2` for schema-based isolation. The shared user remains consistent across sandbox operations while isolation is achieved through dedicated PostgreSQL schemas.
+The module uses the shared database user `level6year2`; isolation is achieved by schema boundaries rather than separate DB users per student.
+
+## Database Setup Requirement
+
+Before using sandbox provisioning, create the required PostgreSQL sequence:
+
+```sql
+CREATE SEQUENCE IF NOT EXISTS sandbox_schema_seq START 1;
+```
 
 ## Key Features
 
-### Validation
-Before provisioning a sandbox, the service validates that both the exam and the student exist in the system. This prevents invalid or orphaned sandbox creation and keeps the workflow aligned with the monolith’s existing records.
+- **Validation:** checks exam existence (Group A), student user existence (Auth), and student profile mapping before provisioning.
+- **63-Character Safety / Naming Convention:** schema name format is `s_{studentNumber}_{sequenceNumber}` (for example `s_22010293_1`) to remain human-readable and PostgreSQL-safe.
+- **Idempotency:** if an `ACTIVE` sandbox already exists for the same exam and student, the existing schema is returned.
+- **Connection Safety:** seed SQL runs within strict `search_path` handling, and `search_path` is reset to `public` after execution.
 
-### Isolation
-Each sandbox is isolated through a unique schema derived from the exam and student identifiers. This keeps student execution separated from the rest of the application data while still operating in the shared database environment.
+## Architecture / Key Components
 
-### 63-Character Safety
-PostgreSQL identifiers are limited to 63 characters. The sandbox module applies schema naming rules that keep generated identifiers safe, normalized, and compatible with PostgreSQL limits.
+| Class | Role |
+|---|---|
+| `SandboxController` | REST API entry point for provisioning, querying, and teardown |
+| `SandboxService` / `SandboxServiceImpl` | Validation, idempotency check, schema creation, seed execution, and lifecycle updates |
+| `SandboxRegistry` | JPA entity storing sandbox metadata in `sandbox_registry` |
+| `SandboxRegistryRepo` | Repository for active/expired sandbox lookups |
+| `SandboxCleanupScheduler` | Scheduled cleanup of expired sandboxes |
 
 ## API Documentation
 
-Base path: `http://localhost:8080/api/sandboxes`
+**Base URL:** `http://localhost:8084/api/sandboxes`
 
-### Endpoint Summary
+All endpoints require a JWT token:
 
-| Endpoint | Method | Purpose | Input | Success Response |
-|---|---|---|---|---|
-| `/provision` | POST | Provision or reuse a sandbox schema for an exam/student pair | JSON body with `examId`, `studentId`, optional `seedSql` | `201 Created` with `schemaName`, `dbUsername` |
-| `/{examId}/students/{studentId}` | GET | Retrieve active sandbox connection details | `examId` and `studentId` as path variables | `200 OK` with `schemaName`, `dbUsername` |
-| `/{examId}/students/{studentId}` | DELETE | Tear down sandbox schema and update registry status | `examId` and `studentId` as path variables | `200 OK` with success `message` |
+```text
+Authorization: Bearer <token>
+```
 
-### How These Endpoints Work
+### 1) POST `/api/sandboxes/provision`
 
-| Step | Endpoint | What Happens Internally |
-|---|---|---|
-| 1 | `POST /provision` | Validates exam and student records, generates schema name, creates schema if missing, optionally executes `seedSql`, stores registry metadata, returns sandbox connection info. |
-| 2 | `GET /{examId}/students/{studentId}` | Looks up sandbox registry by exam and student, confirms sandbox status is active, then returns schema and database username. |
-| 3 | `DELETE /{examId}/students/{studentId}` | Finds the sandbox registry record, drops the schema, updates status, and returns a confirmation message. |
+Provisions a new sandbox or returns an existing active one.
 
-### JSON Sample Data
-
-#### 1) Provision Sandbox
-
-Request (`POST /api/sandboxes/provision`):
+**Request**
 
 ```json
 {
   "examId": "7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11",
   "studentId": "2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73",
-  "seedSql": "CREATE TABLE IF NOT EXISTS answers (id UUID PRIMARY KEY, answer_text VARCHAR(255)); INSERT INTO answers (id, answer_text) VALUES ('9d4f8a89-7c7f-4a98-9cc5-ae9e1d6c5f10', 'Sample answer');"
+  "seedSql": "CREATE TABLE students (id SERIAL PRIMARY KEY, name VARCHAR(100), age INT); INSERT INTO students (name, age) VALUES ('Alice', 21), ('Bob', 19);"
 }
 ```
 
-Response (`201 Created`):
+**Response `201 Created`**
 
 ```json
 {
-  "schemaName": "exam_7f8c2f5f1ad24a8fa4e281f6cb2e4d11_student_2c39c7f985f84b2a90c8d4f4b5d99f73",
+  "schemaName": "s_22010293_1",
+  "dbUsername": "level6year2",
+  "dbUser": "level6year2"
+}
+```
+
+### 2) GET `/api/sandboxes/{examId}/students/{studentId}`
+
+Returns active sandbox connection details.
+
+**Response `200 OK`**
+
+```json
+{
+  "schemaName": "s_22010293_1",
   "dbUsername": "level6year2"
 }
 ```
 
-#### 2) Get Sandbox Connection Details
+### 3) DELETE `/api/sandboxes/{examId}/students/{studentId}`
 
-Request (`GET /api/sandboxes/7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11/students/2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73`)
+Drops the sandbox schema and updates status.
 
-Response (`200 OK`):
-
-```json
-{
-  "schemaName": "exam_7f8c2f5f1ad24a8fa4e281f6cb2e4d11_student_2c39c7f985f84b2a90c8d4f4b5d99f73",
-  "dbUsername": "level6year2"
-}
-```
-
-#### 3) Tear Down Sandbox
-
-Request (`DELETE /api/sandboxes/7f8c2f5f-1ad2-4a8f-a4e2-81f6cb2e4d11/students/2c39c7f9-85f8-4b2a-90c8-d4f4b5d99f73`)
-
-Response (`200 OK`):
+**Response `200 OK`**
 
 ```json
 {
@@ -760,15 +744,43 @@ Response (`200 OK`):
 }
 ```
 
-### Method Reference
+## Internal Usage (For Group G)
 
-| Method | Parameters | Returns | Description |
-|---|---|---|---|
-| `provisionSandbox` | `examId`, `studentId`, `seedSql` | `String` schemaName | Creates schema, user, seeds data |
-| `getSandboxConnectionDetails` | `examId`, `studentId` | `SandboxConnectionInfo` | Returns schema + credentials |
-| `teardownSandbox` | `examId`, `studentId` | `void` | Drops schema and user permanently |
+```java
+import com.year2.queryme.sandbox.service.SandboxService;
+import com.year2.queryme.sandbox.dto.SandboxConnectionInfo;
 
-> Handle exceptions for all three calls — provisioning can fail if the DB user lacks `CREATEROLE`.
+// Constructor injection
+private final SandboxService sandboxService;
+
+public void executeStudentQuery(UUID examId, UUID studentId, String query) {
+    SandboxConnectionInfo info = sandboxService.getSandboxConnectionDetails(examId, studentId);
+    String schemaName = info.schemaName();
+    String dbUser = info.dbUsername(); // level6year2
+    // Execute query in schema, then reset search_path to public
+}
+```
+
+## Registry Table Reference & Lifecycle
+
+### `sandbox_registry` Table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `schema_name` | VARCHAR(100) | Unique schema name (for example `s_22010293_1`) |
+| `exam_id` | UUID | Exam reference |
+| `student_id` | UUID | Student user reference |
+| `db_user` | VARCHAR(100) | Shared DB user (`level6year2`) |
+| `created_at` | TIMESTAMP | Provisioned timestamp |
+| `expires_at` | TIMESTAMP | Expiration timestamp |
+| `status` | VARCHAR(20) | `ACTIVE` or `DROPPED` |
+
+### Lifecycle
+
+- New or reused sandbox starts as `ACTIVE`.
+- `SandboxCleanupScheduler` runs every 5 minutes.
+- Expired active sandboxes are dropped and marked `DROPPED`.
 
 ---
 
@@ -837,4 +849,3 @@ If a question has `partialMarks: true`, try a query that returns the correct num
 
 ---
 *For issues related to the Query Engine, contact Group G.*
-```
