@@ -43,6 +43,7 @@ public class QueryServiceImpl implements QueryService {
     private final ExamRepository examRepository;
     private final ObjectMapper objectMapper;
     private final CurrentUserService currentUserService;
+    private final SqlDialectAdapter sqlDialectAdapter;
 
     @Override
     public SubmissionResponse submitQuery(SubmissionRequest request) {
@@ -87,12 +88,15 @@ public class QueryServiceImpl implements QueryService {
             SandboxConnectionInfo sandboxInfo = sandboxService.getSandboxConnectionDetails(
                 request.getExamId(), request.getStudentId());
 
+            String adaptedQuery = sqlDialectAdapter.adaptForExecution(request.getQuery());
+            String executableQuery = sqlDialectAdapter.ensureFinalStatementReturnsRows(adaptedQuery);
+
             // 2. Validate sandbox-scoped SQL
-            queryValidator.validate(request.getQuery(), sandboxInfo.schemaName(), false);
+            queryValidator.validate(executableQuery, sandboxInfo.schemaName(), false);
 
             // 3. Execute sandboxed SQL atomically inside the student's schema
             SandboxExecutionResult executionResult = queryExecutor.executeSandboxedScript(
-                sandboxInfo.schemaName(), request.getQuery(), 10, false); // 10s hard timeout
+                sandboxInfo.schemaName(), executableQuery, 10, false); // 10s hard timeout
             List<Map<String, Object>> studentResult = executionResult.rows();
                 
             // 4. Compare ResultSets

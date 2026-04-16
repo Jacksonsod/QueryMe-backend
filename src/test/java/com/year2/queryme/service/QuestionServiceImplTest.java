@@ -52,6 +52,9 @@ class QuestionServiceImplTest {
     private QueryValidator queryValidator;
 
     @Mock
+    private SqlDialectAdapter sqlDialectAdapter;
+
+    @Mock
     private CurrentUserService currentUserService;
 
     @Mock
@@ -71,6 +74,7 @@ class QuestionServiceImplTest {
                 sandboxService,
                 queryExecutor,
                 queryValidator,
+                sqlDialectAdapter,
                 new ObjectMapper(),
                 currentUserService,
                 studentRepository,
@@ -94,6 +98,8 @@ class QuestionServiceImplTest {
             return question;
         });
         when(sandboxService.provisionSandbox(examId, teacherUserId, exam.getSeedSql())).thenReturn("preview_schema");
+        when(sqlDialectAdapter.adaptForExecution(request.getReferenceQuery())).thenReturn(request.getReferenceQuery());
+        when(sqlDialectAdapter.ensureFinalStatementReturnsRows(request.getReferenceQuery())).thenReturn(request.getReferenceQuery());
         doNothing().when(queryValidator).validate(request.getReferenceQuery(), "preview_schema", true);
         when(queryExecutor.executeSandboxedScript("preview_schema", request.getReferenceQuery(), 5, true))
                 .thenReturn(new SandboxExecutionResult(true, List.of("total_orders"), List.of(Map.of("total_orders", 42))));
@@ -121,6 +127,8 @@ class QuestionServiceImplTest {
             return question;
         });
         when(sandboxService.provisionSandbox(examId, teacherUserId, exam.getSeedSql())).thenReturn("preview_schema");
+        when(sqlDialectAdapter.adaptForExecution(request.getReferenceQuery())).thenReturn(request.getReferenceQuery());
+        when(sqlDialectAdapter.ensureFinalStatementReturnsRows(request.getReferenceQuery())).thenReturn(request.getReferenceQuery());
         doNothing().when(queryValidator).validate(request.getReferenceQuery(), "preview_schema", true);
         when(queryExecutor.executeSandboxedScript("preview_schema", request.getReferenceQuery(), 5, true))
                 .thenThrow(new RuntimeException("reference query failed"));

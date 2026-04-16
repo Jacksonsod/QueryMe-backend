@@ -79,6 +79,8 @@ These backend changes now match the intended QueryMe flow more closely:
 - query validation and execution failures now return through `SubmissionResponse.executionError` instead of surfacing as rollback-only transaction errors
 - student result views are built from the latest submission per question for that session
 - manual sandbox provisioning now returns the real configured connection info instead of a hard-coded DB user
+- query execution now adapts common MySQL syntax (`\`` identifiers, `IFNULL`, `LIMIT offset,count`, and simple MySQL DDL table options) to PostgreSQL-compatible SQL before validation/execution
+- final `INSERT`/`UPDATE`/`DELETE` statements now auto-append `RETURNING *` when omitted, so DML questions can still produce a comparable result set
 
 ## Group Ownership Map
 
@@ -266,7 +268,8 @@ When a teacher creates or updates a question, the service:
 
 Notes:
 
-- `referenceQuery` can be a sandbox-scoped multi-statement script, but its final statement must return a result set.
+- `referenceQuery` can be a sandbox-scoped multi-statement script.
+- for DML reference queries (`INSERT`/`UPDATE`/`DELETE`), the backend automatically appends `RETURNING *` to the final statement when omitted.
 - Students can only fetch questions for exams that are published and assigned to them.
 - Student-facing question payloads hide `referenceQuery`.
 - If answer-key generation fails, question creation or update fails as well.
@@ -368,12 +371,30 @@ Submission SQL constraints in current implementation:
 - system-level commands such as `GRANT`, `REVOKE`, `COPY`, `VACUUM`, `CALL`, and similar commands are blocked
 - temporary and unlogged objects are blocked
 
+MySQL compatibility in current implementation:
+
+- backtick-quoted identifiers are converted to PostgreSQL double-quoted identifiers before validation
+- `IFNULL(expr, fallback)` is converted to `COALESCE(expr, fallback)`
+- MySQL `LIMIT offset, count` is converted to PostgreSQL `LIMIT count OFFSET offset`
+- basic MySQL table options in `CREATE TABLE` (for example `ENGINE=...`) are stripped for PostgreSQL execution
+- when the final statement is `INSERT`, `UPDATE`, or `DELETE` without `RETURNING`, the backend appends `RETURNING *` automatically
+
+Teacher authoring checklist (MySQL-first cohorts):
+
+- Prefer standard SQL where possible (`SELECT`, `JOIN`, `GROUP BY`, `ORDER BY`, `INSERT`, `UPDATE`, `DELETE`)
+- MySQL-style backticks and `IFNULL` are supported, but avoid relying on MySQL-only procedural features
+- For pagination examples, `LIMIT offset, count` is accepted and auto-translated
+- For DML questions, you can omit `RETURNING`; the backend adds `RETURNING *` on the final DML statement
+- Keep each question deterministic and independent; avoid side effects that change expected outputs for later questions
+- Avoid unsupported patterns such as SQL comments, dollar-quoted blocks, and system-level statements (`GRANT`, `REVOKE`, `COPY`, `VACUUM`, `CALL`, and similar commands)
+- This remains a PostgreSQL execution sandbox; compatibility is best-effort for common MySQL learning syntax, not full MySQL runtime behavior
+
 Current scoring behavior:
 
 - exact match of the final returned result set: full marks
 - `partialMarks = true` and matching row count: half marks
 - validation failure, timeout, or execution failure: returned as `executionError`
-- if a submitted script does not return rows, the compared result set is empty unless the student ends with `SELECT` or a `... RETURNING` clause
+- if the final student statement is `INSERT`/`UPDATE`/`DELETE` without `RETURNING`, the backend adds `RETURNING *` automatically before execution and grading
 
 `SubmissionResponse` includes:
 

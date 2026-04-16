@@ -73,6 +73,9 @@ class QueryServiceImplTest {
     @Mock
     private CurrentUserService currentUserService;
 
+        @Mock
+        private SqlDialectAdapter sqlDialectAdapter;
+
     private QueryServiceImpl queryService;
 
     @BeforeEach
@@ -89,7 +92,8 @@ class QueryServiceImplTest {
                 examSessionRepository,
                 examRepository,
                 new ObjectMapper(),
-                currentUserService
+                currentUserService,
+                sqlDialectAdapter
         );
     }
 
@@ -147,6 +151,8 @@ class QueryServiceImplTest {
         when(examSessionRepository.findById(sessionId.toString())).thenReturn(Optional.of(session));
         when(sandboxService.getSandboxConnectionDetails(examId, studentId))
                 .thenReturn(new SandboxConnectionInfo(schemaName, "sandbox_user"));
+        when(sqlDialectAdapter.adaptForExecution(request.getQuery())).thenReturn(request.getQuery());
+        when(sqlDialectAdapter.ensureFinalStatementReturnsRows(request.getQuery())).thenReturn(request.getQuery());
         doNothing().when(queryValidator).validate(request.getQuery(), schemaName, false);
         when(queryExecutor.executeSandboxedScript(schemaName, request.getQuery(), 10, false))
                 .thenThrow(new RuntimeException("relation \"salary\" does not exist"));
@@ -224,6 +230,8 @@ class QueryServiceImplTest {
         when(examSessionRepository.findById(sessionId.toString())).thenReturn(Optional.of(session));
         when(sandboxService.getSandboxConnectionDetails(examId, studentId))
                 .thenReturn(new SandboxConnectionInfo(schemaName, "sandbox_user"));
+        when(sqlDialectAdapter.adaptForExecution(request.getQuery())).thenReturn(request.getQuery());
+        when(sqlDialectAdapter.ensureFinalStatementReturnsRows(request.getQuery())).thenReturn(request.getQuery());
         doNothing().when(queryValidator).validate(request.getQuery(), schemaName, false);
         when(queryExecutor.executeSandboxedScript(schemaName, request.getQuery(), 10, false))
                 .thenThrow(new RuntimeException("relation \"salary\" does not exist"));

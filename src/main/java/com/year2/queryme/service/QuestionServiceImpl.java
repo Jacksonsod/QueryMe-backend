@@ -41,6 +41,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final SandboxService sandboxService;
     private final QueryExecutor queryExecutor;
     private final QueryValidator queryValidator;
+    private final SqlDialectAdapter sqlDialectAdapter;
     private final ObjectMapper objectMapper;
     private final CurrentUserService currentUserService;
     private final StudentRepository studentRepository;
@@ -110,9 +111,12 @@ public class QuestionServiceImpl implements QuestionService {
 
         try {
             schemaName = sandboxService.provisionSandbox(examId, realTeacherUserId, exam.getSeedSql());
-            queryValidator.validate(referenceQuery, schemaName, true);
+            String adaptedReferenceQuery = sqlDialectAdapter.adaptForExecution(referenceQuery);
+            String executableReferenceQuery = sqlDialectAdapter.ensureFinalStatementReturnsRows(adaptedReferenceQuery);
+
+            queryValidator.validate(executableReferenceQuery, schemaName, true);
             SandboxExecutionResult executionResult = queryExecutor.executeSandboxedScript(
-                    schemaName, referenceQuery, 5, true);
+                schemaName, executableReferenceQuery, 5, true);
 
             if (!executionResult.hasResultSet()) {
                 throw new IllegalArgumentException("Reference query must return a result set");
