@@ -24,7 +24,6 @@ public class EmailService {
             System.out.println("Email sent successfully to " + to);
         } catch (Exception e) {
             System.err.println("Failed to send email to " + to + ": " + e.getMessage());
-            System.out.println("FALLBACK: View the password here: " + tempPassword);
         }
     }
 }

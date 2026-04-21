@@ -18,6 +18,7 @@ public class ExamResponse {
     private Integer questionCount;
     private Integer questionsCount;
     private String seedSql;
+    private String courseName;
     private LocalDateTime createdAt;
     private LocalDateTime publishedAt;
 }

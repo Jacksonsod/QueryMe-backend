@@ -10,4 +10,9 @@ public interface ExamSessionService {
     ExamSessionResponse getSessionById(String sessionId);
     Page<ExamSessionResponse> getSessionsByExam(String examId, Pageable pageable);
     Page<ExamSessionResponse> getSessionsByStudent(String studentId, Pageable pageable);
+    ExamSessionResponse extendSession(String sessionId, int extraHours);
+    ExamSessionResponse addFeedback(String sessionId, String feedback);
+    void grantAdditionalAttempts(String examId, String studentId, int additionalAttempts);
+    int getAdditionalAttempts(String examId, String studentId);
+    void heartbeat(String sessionId);
 }

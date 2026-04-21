@@ -1,5 +1,6 @@
 package com.year2.queryme.service;
 
+import com.year2.queryme.model.Course;
 import com.year2.queryme.model.Exam;
 import com.year2.queryme.model.ExamSession;
 import com.year2.queryme.model.Question;
@@ -10,10 +11,12 @@ import com.year2.queryme.model.dto.StudentQuestionResultDto;
 import com.year2.queryme.model.dto.TeacherDashboardRowDto;
 import com.year2.queryme.model.enums.ExamStatus;
 import com.year2.queryme.model.enums.UserTypes;
+import com.year2.queryme.model.enums.QuestionResultStatus;
 import com.year2.queryme.model.enums.VisibilityMode;
 import com.year2.queryme.repository.projection.QuestionSummaryView;
 import com.year2.queryme.repository.projection.StudentNameView;
 import com.year2.queryme.repository.projection.TeacherDashboardSubmissionView;
+import com.year2.queryme.repository.CourseRepository;
 import com.year2.queryme.repository.ExamRepository;
 import com.year2.queryme.repository.ExamSessionRepository;
 import com.year2.queryme.repository.QuestionRepository;
@@ -46,6 +49,7 @@ public class ResultServiceImpl implements ResultService {
     private final SubmissionRepository submissionRepository;
     private final QuestionRepository questionRepository;
     private final StudentRepository studentRepository;
+    private final CourseRepository courseRepository;
     private final CurrentUserService currentUserService;
     private final ObjectMapper objectMapper;
 
@@ -67,7 +71,8 @@ public class ResultServiceImpl implements ResultService {
                 .orElseThrow(() -> new RuntimeException("Exam not found: " + session.getExamId()));
 
         boolean visible = isVisibleToStudent(exam, session);
-        List<Question> questions = questionRepository.findByExamIdOrderByOrderIndexAsc(UUID.fromString(session.getExamId()));
+        List<Question> questions = questionRepository
+                .findByExamIdOrderByOrderIndexAsc(UUID.fromString(session.getExamId()));
         Map<UUID, Submission> latestSubmissions = latestSubmissionByQuestion(
                 submissionRepository.findBySessionIdOrderBySubmittedAtDesc(sessionId));
 
@@ -88,6 +93,7 @@ public class ResultServiceImpl implements ResultService {
                     .submittedQuery(submission != null ? submission.getSubmittedQuery() : null)
                     .score(visible && submission != null ? submission.getScore() : null)
                     .maxScore(visible ? question.getMarks() : null)
+                    .status(visible ? calculateStatus(submission, session.getSubmittedAt() != null) : null)
                     .isCorrect(visible && submission != null ? submission.getIsCorrect() : null)
                     .submittedAt(submission != null ? submission.getSubmittedAt() : null)
                     .resultColumns(visible && submission != null ? parseColumns(submission.getResultColumns()) : null)
@@ -104,7 +110,20 @@ public class ResultServiceImpl implements ResultService {
                 .totalScore(visible ? totalScore : null)
                 .totalMaxScore(visible ? totalMaxScore : null)
                 .questions(questionResults)
+                .teacherFeedback(visible ? session.getTeacherFeedback() : null)
+                .examTitle(exam.getTitle())
+                .courseName(getCourseName(exam))
                 .build();
+    }
+
+    private String getCourseName(Exam exam) {
+        try {
+            return courseRepository.findById(Long.parseLong(exam.getCourseId()))
+                    .map(Course::getName)
+                    .orElse("Unknown Course");
+        } catch (Exception e) {
+            return "Unknown Course";
+        }
     }
 
     @Override
@@ -131,7 +150,8 @@ public class ResultServiceImpl implements ResultService {
     @Override
     public List<TeacherDashboardRowDto> getResultsForTeacher(UUID examId) {
         Map<String, TeacherDashboardSubmissionView> latestSubmissions = new LinkedHashMap<>();
-        for (TeacherDashboardSubmissionView submission : submissionRepository.findDashboardRowsByExamIdOrderBySubmittedAtDesc(examId)) {
+        for (TeacherDashboardSubmissionView submission : submissionRepository
+                .findDashboardRowsByExamIdOrderBySubmittedAtDesc(examId)) {
             String key = submission.getStudentId() + ":" + submission.getQuestionId();
             latestSubmissions.putIfAbsent(key, submission);
         }
@@ -141,32 +161,33 @@ public class ResultServiceImpl implements ResultService {
         }
 
         Map<UUID, QuestionSummaryView> questionMap = questionRepository.findQuestionSummariesByExamId(examId)
-            .stream()
-            .collect(Collectors.toMap(QuestionSummaryView::getId, question -> question));
+                .stream()
+                .collect(Collectors.toMap(QuestionSummaryView::getId, question -> question));
 
         Set<UUID> studentUserIds = latestSubmissions.values().stream()
-            .map(TeacherDashboardSubmissionView::getStudentId)
-            .collect(Collectors.toSet());
+                .map(TeacherDashboardSubmissionView::getStudentId)
+                .collect(Collectors.toSet());
 
         Map<UUID, StudentNameView> studentsByUserId = studentRepository.findStudentNamesByUserIds(studentUserIds)
                 .stream()
-            .collect(Collectors.toMap(StudentNameView::getUserId, student -> student));
+                .collect(Collectors.toMap(StudentNameView::getUserId, student -> student));
 
         return latestSubmissions.values().stream()
                 .map(submission -> {
-                StudentNameView student = studentsByUserId.get(submission.getStudentId());
-                QuestionSummaryView question = questionMap.get(submission.getQuestionId());
+                    StudentNameView student = studentsByUserId.get(submission.getStudentId());
+                    QuestionSummaryView question = questionMap.get(submission.getQuestionId());
                     return TeacherDashboardRowDto.builder()
                             .studentId(submission.getStudentId())
-                    .studentName(student != null ? student.getFullName() : submission.getStudentId().toString())
+                            .studentName(student != null ? student.getFullName() : submission.getStudentId().toString())
                             .sessionId(submission.getSessionId())
                             .questionId(submission.getQuestionId())
                             .questionPrompt(question != null ? question.getPrompt() : null)
                             .score(submission.getScore())
                             .maxScore(question != null ? question.getMarks() : null)
-                            .isCorrect(submission.getIsCorrect())
+                            .status(calculateStatus(submission, true))
                             .submittedQuery(submission.getSubmittedQuery())
                             .submittedAt(submission.getSubmittedAt())
+                            .teacherFeedback(submission.getTeacherFeedback())
                             .build();
                 })
                 .toList();
@@ -181,10 +202,10 @@ public class ResultServiceImpl implements ResultService {
                 .orElseThrow(() -> new RuntimeException("Question not found: " + submission.getQuestionId()));
 
         return saveQueryResult(submission, question, score, isCorrect);
-        }
+    }
 
-        @Override
-        public Result saveQueryResult(Submission submission, Question question, Integer score, Boolean isCorrect) {
+    @Override
+    public Result saveQueryResult(Submission submission, Question question, Integer score, Boolean isCorrect) {
         Result result = resultRepository.findBySubmissionId(submission.getId())
                 .orElseGet(Result::new);
 
@@ -228,7 +249,8 @@ public class ResultServiceImpl implements ResultService {
         }
 
         try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
+            return objectMapper.readValue(json, new TypeReference<>() {
+            });
         } catch (Exception ex) {
             log.warn("Failed to parse result columns JSON: {}", ex.getMessage());
             return null;
@@ -241,10 +263,42 @@ public class ResultServiceImpl implements ResultService {
         }
 
         try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
+            return objectMapper.readValue(json, new TypeReference<>() {
+            });
         } catch (Exception ex) {
             log.warn("Failed to parse result rows JSON: {}", ex.getMessage());
             return null;
         }
+    }
+    private QuestionResultStatus calculateStatus(Submission submission, boolean isSessionFinished) {
+        if (submission == null) {
+            return isSessionFinished ? QuestionResultStatus.INCORRECT : QuestionResultStatus.NOT_ATTEMPTED;
+        }
+
+        if (Boolean.TRUE.equals(submission.getIsCorrect())) {
+            return QuestionResultStatus.CORRECT;
+        }
+
+        if (submission.getScore() != null && submission.getScore() > 0) {
+            return QuestionResultStatus.PARTIAL;
+        }
+
+        return QuestionResultStatus.INCORRECT;
+    }
+
+    private QuestionResultStatus calculateStatus(TeacherDashboardSubmissionView submission, boolean isSessionFinished) {
+        if (submission == null) {
+            return isSessionFinished ? QuestionResultStatus.INCORRECT : QuestionResultStatus.NOT_ATTEMPTED;
+        }
+
+        if (Boolean.TRUE.equals(submission.getIsCorrect())) {
+            return QuestionResultStatus.CORRECT;
+        }
+
+        if (submission.getScore() != null && submission.getScore() > 0) {
+            return QuestionResultStatus.PARTIAL;
+        }
+
+        return QuestionResultStatus.INCORRECT;
     }
 }

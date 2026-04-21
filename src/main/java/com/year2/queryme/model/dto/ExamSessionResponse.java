@@ -14,4 +14,5 @@ public class ExamSessionResponse {
     private String sandboxSchema;
     private boolean isSubmitted;
     private boolean isExpired;
+    private String teacherFeedback;
 }

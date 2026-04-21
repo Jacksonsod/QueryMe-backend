@@ -20,23 +20,43 @@ public class CourseController {
     @Autowired
     private TeacherRepository teacherRepository;
 
+    @Autowired
+    private com.year2.queryme.service.CurrentUserService currentUserService;
+
     @PostMapping
-    public Course create(@RequestBody Course course) {
-        // Get the logged-in user's email from the security token
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public Course create(@RequestBody java.util.Map<String, Object> data) {
+        String name = (String) data.get("name");
+        String code = (String) data.get("code");
+        Object teacherIdObj = data.get("teacherId");
         
-        // Find the teacher record for this user
-        Teacher teacher = teacherRepository.findByUserEmail(email)
-                .orElseThrow(() -> new RuntimeException("Teacher not found for email: " + email));
+        if (teacherIdObj == null) {
+            throw new RuntimeException("teacherId is required");
+        }
         
-        // Link the course to this teacher
-        course.setTeacher(teacher);
+        Long teacherId = Long.parseLong(teacherIdObj.toString());
+        Teacher teacher = teacherRepository.findById(teacherId)
+                .orElseThrow(() -> new RuntimeException("Teacher not found with id: " + teacherId));
+        
+        Course course = Course.builder()
+                .name(name)
+                .code(code)
+                .teacher(teacher)
+                .build();
         
         return courseRepository.save(course);
     }
 
     @GetMapping
     public Page<Course> getAll(Pageable pageable) {
-        return courseRepository.findAll(pageable);
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.ADMIN)) {
+            return courseRepository.findAll(pageable);
+        }
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.TEACHER)) {
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            return courseRepository.findByTeacherUserEmail(email, pageable);
+        }
+        // Students or others see nothing
+        return Page.empty();
     }
 }

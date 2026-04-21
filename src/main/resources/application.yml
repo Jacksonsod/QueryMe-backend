@@ -25,13 +25,17 @@ spring:
     port: ${MAIL_PORT}
     username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
+    protocol: ${MAIL_PROTOCOL:smtp}
     properties:
       mail:
         smtp:
-          auth: ${MAIL_AUTH}
+          auth: true
           starttls:
-            enable: ${MAIL_STARTTLS}
-          protocol: ${MAIL_PROTOCOL}
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+        debug: false
 
 server:
   port: ${APP_PORT:8085}

@@ -10,7 +10,9 @@ import com.year2.queryme.model.mapper.ExamSessionMapper;
 import com.year2.queryme.repository.CourseEnrollmentRepository;
 import com.year2.queryme.repository.ExamRepository;
 import com.year2.queryme.repository.ExamSessionRepository;
+import com.year2.queryme.repository.ExamAttemptOverrideRepository;
 import com.year2.queryme.repository.StudentRepository;
+import com.year2.queryme.model.ExamAttemptOverride;
 import com.year2.queryme.sandbox.service.SandboxService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,8 @@ public class ExamSessionServiceImpl implements ExamSessionService {
     private final CurrentUserService currentUserService;
     private final StudentRepository studentRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final ExamAttemptOverrideRepository attemptOverrideRepository;
+    private final com.year2.queryme.repository.CourseRepository courseRepository;
 
     @Override
     @Transactional
@@ -65,7 +69,12 @@ public class ExamSessionServiceImpl implements ExamSessionService {
             throw new RuntimeException("Student already has an active session for this exam");
         }
 
-        if (existingSessions.size() >= exam.getMaxAttempts()) {
+        int maxAttempts = exam.getMaxAttempts();
+        int additionalAttempts = attemptOverrideRepository.findByExamIdAndStudentId(request.getExamId(), request.getStudentId())
+                .map(ExamAttemptOverride::getAdditionalAttempts)
+                .orElse(0);
+
+        if (existingSessions.size() >= (maxAttempts + additionalAttempts)) {
             throw new RuntimeException("Maximum attempts reached for this exam");
         }
 
@@ -120,6 +129,9 @@ public class ExamSessionServiceImpl implements ExamSessionService {
 
     @Override
     public Page<ExamSessionResponse> getSessionsByExam(String examId, Pageable pageable) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(examId);
+        }
         assertCurrentUserCanViewExamSessions();
         return sessionRepository.findByExamId(examId, pageable)
                 .map(session -> isExpiredAndOpen(session) ? autoSubmit(session) : session)
@@ -132,6 +144,108 @@ public class ExamSessionServiceImpl implements ExamSessionService {
         return sessionRepository.findByStudentId(studentId, pageable)
                 .map(session -> isExpiredAndOpen(session) ? autoSubmit(session) : session)
                 .map(ExamSessionMapper::toResponse);
+    }
+
+    @Override
+    @Transactional
+    public ExamSessionResponse extendSession(String sessionId, int extraHours) {
+        ExamSession session = findById(sessionId);
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(session.getExamId());
+        }
+        
+        if (currentUserService.hasRole(UserTypes.STUDENT)) {
+            throw new RuntimeException("Students cannot extend sessions");
+        }
+
+        LocalDateTime newExpiresAt;
+        if (session.getExpiresAt() != null) {
+            if (session.getExpiresAt().isBefore(LocalDateTime.now())) {
+                newExpiresAt = LocalDateTime.now().plusHours(extraHours);
+            } else {
+                newExpiresAt = session.getExpiresAt().plusHours(extraHours);
+            }
+            session.setExpiresAt(newExpiresAt);
+        } else {
+            session.setExpiresAt(LocalDateTime.now().plusHours(extraHours));
+        }
+
+        // Re-open session if it was submitted
+        if (session.getSubmittedAt() != null) {
+            session.setSubmittedAt(null);
+            
+            // Re-provision sandbox if it was torn down
+            try {
+                Exam exam = examRepository.findById(session.getExamId())
+                        .orElseThrow(() -> new RuntimeException("Exam not found"));
+                sandboxService.provisionSandbox(
+                        UUID.fromString(session.getExamId()),
+                        UUID.fromString(session.getStudentId()),
+                        exam.getSeedSql());
+            } catch (Exception e) {
+                // Ignore if sandbox still exists
+            }
+        }
+
+        return ExamSessionMapper.toResponse(sessionRepository.save(session));
+    }
+
+    @Override
+    @Transactional
+    public ExamSessionResponse addFeedback(String sessionId, String feedback) {
+        ExamSession session = findById(sessionId);
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(session.getExamId());
+        }
+        
+        if (currentUserService.hasRole(UserTypes.STUDENT)) {
+            throw new RuntimeException("Students cannot add feedback to sessions");
+        }
+
+        session.setTeacherFeedback(feedback);
+        return ExamSessionMapper.toResponse(sessionRepository.save(session));
+    }
+
+    @Override
+    @Transactional
+    public void grantAdditionalAttempts(String examId, String studentId, int additionalAttempts) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(examId);
+        }
+        if (currentUserService.hasRole(UserTypes.STUDENT)) {
+            throw new RuntimeException("Students cannot grant additional attempts");
+        }
+
+        ExamAttemptOverride override = attemptOverrideRepository.findByExamIdAndStudentId(examId, studentId)
+                .orElse(ExamAttemptOverride.builder()
+                        .examId(examId)
+                        .studentId(studentId)
+                        .additionalAttempts(0)
+                        .build());
+
+        override.setAdditionalAttempts(override.getAdditionalAttempts() + additionalAttempts);
+        attemptOverrideRepository.save(override);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int getAdditionalAttempts(String examId, String studentId) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(examId);
+        }
+        
+        return attemptOverrideRepository.findByExamIdAndStudentId(examId, studentId)
+                .map(ExamAttemptOverride::getAdditionalAttempts)
+                .orElse(0);
+    }
+
+    @Override
+    @Transactional
+    public void heartbeat(String sessionId) {
+        ExamSession session = findById(sessionId);
+        assertCurrentUserCanAccessSession(session);
+        session.setLastHeartbeatAt(LocalDateTime.now());
+        sessionRepository.save(session);
     }
 
     private ExamSession findById(String sessionId) {
@@ -160,7 +274,9 @@ public class ExamSessionServiceImpl implements ExamSessionService {
     }
 
     private boolean isExpired(ExamSession session) {
-        return session.getExpiresAt() != null && LocalDateTime.now().isAfter(session.getExpiresAt());
+        if (session.getExpiresAt() == null) return false;
+        // 10-second grace period to account for network latency
+        return LocalDateTime.now().isAfter(session.getExpiresAt().plusSeconds(10));
     }
 
     private boolean isExpiredAndOpen(ExamSession session) {
@@ -181,6 +297,21 @@ public class ExamSessionServiceImpl implements ExamSessionService {
             // Session should still be treated as submitted even if the sandbox was already cleaned up.
         }
         return savedSession;
+    }
+
+    private void assertTeacherOwnsExam(String examId) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            Exam exam = examRepository.findById(examId)
+                    .orElseThrow(() -> new RuntimeException("Exam not found: " + examId));
+            
+            com.year2.queryme.model.Course course = courseRepository.findById(Long.parseLong(exam.getCourseId()))
+                    .orElseThrow(() -> new RuntimeException("Course not found: " + exam.getCourseId()));
+            
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            if (!course.getTeacher().getUser().getEmail().equals(email)) {
+                throw new RuntimeException("Teachers can only manage sessions for their own exams");
+            }
+        }
     }
 
     private void assertCurrentUserCanViewExamSessions() {

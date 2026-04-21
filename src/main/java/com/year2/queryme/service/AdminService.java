@@ -9,6 +9,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.year2.queryme.model.RegistrationRequest;
+import com.year2.queryme.model.enums.RegistrationRequestStatus;
+import com.year2.queryme.repository.RegistrationRequestRepository;
+import java.util.List;
+import java.util.UUID;
+import java.time.LocalDateTime;
 
 import java.util.Map;
 
@@ -32,6 +38,53 @@ public class AdminService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private RegistrationRequestRepository registrationRequestRepository;
+
+    @Autowired
+    private StudentService studentService;
+
+    @Transactional(readOnly = true)
+    public List<RegistrationRequest> getPendingRegistrationRequests() {
+        return registrationRequestRepository.findByStatusOrderByRequestedAtDesc(
+                RegistrationRequestStatus.PENDING);
+    }
+
+    @Transactional
+    public void approveRegistrationRequest(UUID id) {
+        RegistrationRequest request = registrationRequestRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Registration request not found"));
+
+        if (request.getStatus() != RegistrationRequestStatus.PENDING) {
+            throw new IllegalStateException("Only pending requests can be approved");
+        }
+
+        studentService.createStudentFromApprovedRequest(request);
+
+        request.setStatus(RegistrationRequestStatus.APPROVED);
+        request.setProcessedAt(LocalDateTime.now());
+        registrationRequestRepository.save(request);
+        
+        // Optionally send an email notification here
+    }
+
+    @Transactional
+    public void rejectRegistrationRequest(UUID id, String reason) {
+        RegistrationRequest request = registrationRequestRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Registration request not found"));
+
+        if (request.getStatus() != RegistrationRequestStatus.PENDING) {
+            throw new IllegalStateException("Only pending requests can be rejected");
+        }
+
+        request.setStatus(RegistrationRequestStatus.REJECTED);
+        request.setRejectionReason(reason);
+        request.setProcessedAt(LocalDateTime.now());
+        registrationRequestRepository.save(request);
+        
+        // Optionally send an email notification here
+    }
 
     @Transactional
     public Admin registerAdmin(String email, String password, String fullName) {

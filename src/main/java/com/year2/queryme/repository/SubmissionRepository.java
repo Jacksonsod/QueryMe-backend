@@ -25,8 +25,10 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
                    s.score as score,
                    s.isCorrect as isCorrect,
                    s.submittedQuery as submittedQuery,
-                   s.submittedAt as submittedAt
+                   s.submittedAt as submittedAt,
+                   es.teacherFeedback as teacherFeedback
             from Submission s
+            join ExamSession es on cast(s.sessionId as string) = es.id
             where s.examId = :examId
             order by s.submittedAt desc
             """)
