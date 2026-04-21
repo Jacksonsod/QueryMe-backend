@@ -644,8 +644,6 @@ This section documents the security and user management enhancements implemented
 - **Feature**: Added a temporary utility to reset the super admin status if credentials are lost.
 - **Endpoint**: `POST /auth/bootstrap/reset` (Public).
 
-- sandbox validation and execution failures are reported in a normal `SubmissionResponse` instead of bubbling up as rollback-only transaction errors
-
 ### API Endpoint Summary Table (New & Updated)
 
 | Method | Endpoint | Implementation Detail | Access |
@@ -658,3 +656,73 @@ This section documents the security and user management enhancements implemented
 | `PUT` | `/students/{id}`| Updates profile and enforces password history | Owner/`ADMIN` |
 | `POST` | `/teachers/register`| Creates teacher + temp password + email | `ADMIN` only |
 | `POST` | `/guests/register`| Creates guest + temp password + email | `ADMIN` only |
+| `POST` | `/courses` | Creates a new course and assigns a teacher | `ADMIN` only |
+| `POST` | `/course-enrollments` | Enrolls a student into a course | `ADMIN` only |
+| `GET` | `/courses` | Lists courses (filtered for teachers) | `TEACHER`/`ADMIN` |
+| `GET` | `/students` | Lists students (filtered for teachers) | `TEACHER`/`ADMIN` |
+
+## Security & Data Isolation Model
+
+The system implements a strict multi-tenant style isolation model based on user roles:
+
+### 1. Admin Role (Full Access)
+- **User Management**: Only Admins can register new Students and Teachers.
+- **Course Management**: Only Admins can create courses and assign them to Teachers.
+- **Enrollment**: Only Admins can enroll students into specific courses.
+- **Global Visibility**: Admins can see all courses, students, and results across the entire system.
+
+### 2. Teacher Role (Isolated Scope)
+- **Data Isolation**: Teachers can ONLY see:
+  - Courses explicitly assigned to them by an Admin.
+  - Students enrolled in their courses.
+  - Exams and Sessions related to their courses.
+- **Management Privileges**: Teachers can create and manage Exams/Questions within their courses, extend sessions, and provide feedback.
+- **Restrictions**: Teachers CANNOT create courses, register users, or see data from courses they do not own.
+
+### 3. Student Role (Personal Scope)
+- **Course Enrollment**: Students only see exams for courses they are enrolled in.
+- **Signup**: Students can sign up publicly, but will have an empty dashboard until an Admin enrolls them in a course.
+- **Self-Service**: Students can view their own profile, take exams they are assigned to, and view their own results.
+
+---
+
+## Recent Features & Stability (Late April 2026)
+
+This update adds advanced session management, exam cloning, and result exporting features.
+
+### 1. Advanced Session Management
+- **Teacher Feedback**: Teachers can now leave comments on student exam attempts.
+  - `PATCH /sessions/{sessionId}/feedback`
+- **Session Extensions**: Teachers can extend an active session's time limit.
+  - `POST /sessions/{sessionId}/extend`
+- **Individual Attempt Overrides**: Teachers can grant additional exam attempts to specific students.
+  - `POST /exams/{examId}/students/{studentId}/additional-attempts?count=1`
+- **Session Heartbeat**: Students can send heartbeats to track session activity.
+  - `POST /sessions/{sessionId}/heartbeat`
+
+### 2. Exam Utility Features
+- **Exam Cloning**: Teachers can duplicate an entire exam structure, including all questions and answer keys.
+  - `POST /exams/{examId}/clone`
+- **Published Exam Editing**: Relaxed constraints for published exams. Teachers can now update non-critical fields (title, description, visibilityMode, maxAttempts) without unpublishing.
+
+### 3. Result Exporting & Detailed Grading
+- **Detailed Status**: Results now include a `status` field: `CORRECT`, `INCORRECT`, `PARTIAL`, or `NOT_ATTEMPTED`.
+- **CSV Export**: Teachers and Students can export results as a CSV file.
+  - `GET /results/session/{sessionId}/export` (Returns `text/csv`)
+
+### 4. Security & Privacy Hardening
+- **Credential Masking**: User password hashes and history hashes are strictly excluded from all API JSON responses using `@JsonIgnore`.
+- **Lazy Loading Fixes**: Resolved Hibernate "No Session" errors during JSON serialization of user-linked collections.
+
+### Updated Endpoint Map
+
+| Method | Path | What it does | Access |
+|---|---|---|---|
+| `PATCH` | `/sessions/{sessionId}/feedback` | Adds teacher feedback to a session. | `TEACHER` or `ADMIN` |
+| `POST` | `/sessions/{sessionId}/extend` | Extends session duration (re-provisions sandbox if expired). | `TEACHER` or `ADMIN` |
+| `POST` | `/sessions/{sessionId}/heartbeat` | Updates the last seen timestamp for a session. | Owner/`TEACHER`/`ADMIN` |
+| `POST` | `/exams/{examId}/students/{studentId}/additional-attempts` | Grants extra attempts to a specific student. | `TEACHER` or `ADMIN` |
+| `GET` | `/results/session/{sessionId}/export` | Exports student results for a session as CSV. | Owner/`TEACHER`/`ADMIN` |
+| `POST` | `/exams/{examId}/clone` | Clones an existing exam (including questions/keys). | `TEACHER` or `ADMIN` |
+
+

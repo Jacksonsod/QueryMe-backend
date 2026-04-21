@@ -15,4 +15,6 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
     Page<CourseEnrollment> findByCourseId(Long courseId, Pageable pageable);
     Page<CourseEnrollment> findByStudentId(Long studentId, Pageable pageable);
     Optional<CourseEnrollment> findByCourseIdAndStudentId(Long courseId, Long studentId);
+    Page<CourseEnrollment> findByCourseTeacherUserEmail(String email, Pageable pageable);
+    Page<CourseEnrollment> findByStudentIdAndCourseTeacherUserEmail(Long studentId, String email, Pageable pageable);
 }

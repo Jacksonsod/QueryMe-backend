@@ -18,6 +18,7 @@ public class ExamSessionMapper {
         res.setSubmitted(session.getSubmittedAt() != null);
         res.setExpired(session.getExpiresAt() != null
                 && LocalDateTime.now().isAfter(session.getExpiresAt()));
+        res.setTeacherFeedback(session.getTeacherFeedback());
         return res;
     }
 }

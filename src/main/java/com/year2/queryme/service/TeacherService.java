@@ -64,9 +64,8 @@ public class TeacherService {
     }
 
     @Transactional
-    public Teacher updateProfile(Long teacherId, Map<String, String> data) {
-        Teacher teacher = teacherRepository.findById(teacherId)
-                .orElseThrow(() -> new RuntimeException("Teacher not found with id: " + teacherId));
+    public Teacher updateProfile(String id, Map<String, String> data) {
+        Teacher teacher = findTeacherByIdOrUserId(id);
 
         if (currentUserService.hasRole(UserTypes.TEACHER)
                 && (teacher.getUser() == null
@@ -101,5 +100,16 @@ public class TeacherService {
         }
 
         return teacherRepository.save(teacher);
+    }
+    public Teacher findTeacherByIdOrUserId(String id) {
+        try {
+            Long teacherId = Long.parseLong(id);
+            return teacherRepository.findById(teacherId)
+                    .orElseThrow(() -> new RuntimeException("Teacher not found with id: " + id));
+        } catch (NumberFormatException e) {
+            // Assume it's a UUID (user_id)
+            return teacherRepository.findByUser_Id(java.util.UUID.fromString(id))
+                    .orElseThrow(() -> new RuntimeException("Teacher not found with user id: " + id));
+        }
     }
 }

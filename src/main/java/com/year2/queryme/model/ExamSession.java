@@ -41,4 +41,10 @@ public class ExamSession {
 
     @Column(name = "sandbox_schema", length = 100)
     private String sandboxSchema;
+
+    @Column(name = "teacher_feedback", length = 2000)
+    private String teacherFeedback;
+
+    @Column(name = "last_heartbeat_at")
+    private LocalDateTime lastHeartbeatAt;
 }

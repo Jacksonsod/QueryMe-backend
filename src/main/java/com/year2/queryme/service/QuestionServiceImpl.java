@@ -40,6 +40,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final QuestionRepository questionRepository;
     private final AnswerKeyRepository answerKeyRepository;
     private final ExamRepository examRepository;
+    private final com.year2.queryme.repository.CourseRepository courseRepository;
     private final SandboxService sandboxService;
     private final QueryExecutor queryExecutor;
     private final QueryValidator queryValidator;
@@ -52,6 +53,7 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     @Transactional
     public QuestionResponse createQuestion(UUID examId, QuestionRequest request) {
+        assertTeacherOwnsExam(examId);
         Question savedQuestion = questionRepository.save(buildQuestion(examId, request, null));
         generateAndSaveAnswerKey(savedQuestion.getId(), examId, request.getReferenceQuery());
 
@@ -61,6 +63,7 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     @Transactional
     public QuestionResponse updateQuestion(UUID examId, UUID questionId, QuestionRequest request) {
+        assertTeacherOwnsExam(examId);
         Question existingQuestion = questionRepository.findById(questionId)
                 .orElseThrow(() -> new RuntimeException("Question not found: " + questionId));
 
@@ -76,6 +79,9 @@ public class QuestionServiceImpl implements QuestionService {
 
     @Override
     public Page<QuestionResponse> getQuestionsForExam(UUID examId, Pageable pageable) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsExam(examId);
+        }
         boolean includeReferenceQuery = !currentUserService.hasRole(UserTypes.STUDENT);
 
         if (currentUserService.hasRole(UserTypes.STUDENT)) {
@@ -186,6 +192,21 @@ public class QuestionServiceImpl implements QuestionService {
         response.setOrderSensitive(question.getOrderSensitive());
         response.setPartialMarks(question.getPartialMarks());
         return response;
+    }
+
+    private void assertTeacherOwnsExam(UUID examId) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            Exam exam = examRepository.findById(examId.toString())
+                    .orElseThrow(() -> new RuntimeException("Exam not found: " + examId));
+            
+            com.year2.queryme.model.Course course = courseRepository.findById(Long.parseLong(exam.getCourseId()))
+                    .orElseThrow(() -> new RuntimeException("Course not found: " + exam.getCourseId()));
+            
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            if (!course.getTeacher().getUser().getEmail().equals(email)) {
+                throw new RuntimeException("Teachers can only manage questions for their own exams");
+            }
+        }
     }
 
     private void assertCurrentStudentCanAccessExam(UUID examId) {

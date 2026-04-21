@@ -27,4 +27,11 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 			""")
 	List<StudentNameView> findStudentNamesByUserIds(@Param("userIds") Collection<UUID> userIds);
     boolean existsByStudentNumber(String studentNumber);
+
+    @Query("""
+            SELECT DISTINCT s FROM Student s
+            JOIN CourseEnrollment ce ON s.id = ce.student.id
+            WHERE ce.course.teacher.user.email = :teacherEmail
+            """)
+    Page<Student> findAllByTeacherEmail(@Param("teacherEmail") String teacherEmail, Pageable pageable);
 }

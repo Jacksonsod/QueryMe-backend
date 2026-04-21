@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -42,21 +43,24 @@ public class StudentController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER', 'ADMIN')")
-    public Student update(@PathVariable Long id, @RequestBody Map<String, String> data) {
+    public Student update(@PathVariable String id, @RequestBody Map<String, String> data) {
         return studentService.updateProfile(id, data);
     }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public Page<Student> getAll(Pageable pageable) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            return studentRepository.findAllByTeacherEmail(email, pageable);
+        }
         return studentRepository.findAll(pageable);
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER', 'ADMIN')")
-    public Student getById(@PathVariable Long id) {
-        Student student = studentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Student not found with id: " + id));
+    public Student getById(@PathVariable String id) {
+        Student student = studentService.findStudentByIdOrUserId(id);
 
         if (currentUserService.hasRole(UserTypes.STUDENT)
                 && (student.getUser() == null
@@ -69,7 +73,7 @@ public class StudentController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public org.springframework.http.ResponseEntity<?> delete(@PathVariable Long id) {
+    public org.springframework.http.ResponseEntity<?> delete(@PathVariable String id) {
         studentService.deleteStudent(id);
         return org.springframework.http.ResponseEntity.ok(new com.year2.queryme.model.dto.MessageResponse("Student deleted successfully"));
     }

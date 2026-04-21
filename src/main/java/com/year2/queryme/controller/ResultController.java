@@ -37,4 +37,5 @@ public class ResultController {
     public ResponseEntity<List<TeacherDashboardRowDto>> getTeacherDashboard(@PathVariable UUID examId) {
         return ResponseEntity.ok(resultService.getResultsForTeacher(examId));
     }
+
 }

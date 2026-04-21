@@ -27,7 +27,11 @@ public class CourseEnrollmentController {
     @Autowired
     private StudentRepository studentRepository;
 
+    @Autowired
+    private com.year2.queryme.service.CurrentUserService currentUserService;
+
     @PostMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public CourseEnrollment enrollStudent(
             @RequestParam(name = "courseId", required = false) String courseIdParam,
             @RequestParam(name = "course_id", required = false) String courseIdSnakeParam,
@@ -58,21 +62,43 @@ public class CourseEnrollmentController {
     }
 
     @GetMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public Page<CourseEnrollment> getAllEnrollments(Pageable pageable) {
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.TEACHER)) {
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            return courseEnrollmentRepository.findByCourseTeacherUserEmail(email, pageable);
+        }
         return courseEnrollmentRepository.findAll(pageable);
     }
 
     @GetMapping("/course/{courseId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public Page<CourseEnrollment> getEnrollmentsByCourse(@PathVariable Long courseId, Pageable pageable) {
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+        
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.TEACHER)) {
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            if (!course.getTeacher().getUser().getEmail().equals(email)) {
+                throw new RuntimeException("Teachers can only view enrollments for their own courses");
+            }
+        }
+        
         return courseEnrollmentRepository.findByCourseId(courseId, pageable);
     }
 
     @GetMapping("/student/{studentId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
     public Page<CourseEnrollment> getEnrollmentsByStudent(@PathVariable Long studentId, Pageable pageable) {
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.TEACHER)) {
+             String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+             return courseEnrollmentRepository.findByStudentIdAndCourseTeacherUserEmail(studentId, email, pageable);
+        }
         return courseEnrollmentRepository.findByStudentId(studentId, pageable);
     }
     
     @DeleteMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public void unenrollStudent(
             @RequestParam(name = "courseId", required = false) String courseIdParam,
             @RequestParam(name = "course_id", required = false) String courseIdSnakeParam,

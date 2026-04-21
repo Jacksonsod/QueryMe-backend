@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +38,9 @@ class ExamServiceImplTest {
     @Mock
     private QuestionRepository questionRepository;
 
+    @Mock
+    private com.year2.queryme.repository.AnswerKeyRepository answerKeyRepository;
+
     private ExamServiceImpl examService;
 
     @BeforeEach
@@ -46,7 +50,8 @@ class ExamServiceImplTest {
                 currentUserService,
                 studentRepository,
                 courseEnrollmentRepository,
-                questionRepository
+                questionRepository,
+                answerKeyRepository
         );
     }
 
@@ -61,7 +66,10 @@ class ExamServiceImplTest {
                 .build();
 
         when(examRepository.findByStatus(ExamStatus.PUBLISHED)).thenReturn(List.of(exam));
-        when(questionRepository.countByExamId(UUID.fromString(examId))).thenReturn(7L);
+        Object[] countRow = new Object[]{examId, 7L};
+        List<Object[]> counts = java.util.Collections.singletonList(countRow);
+        when(questionRepository.countByExamIds(any()))
+                .thenReturn(counts);
 
         List<ExamResponse> responses = examService.getPublishedExams();
 

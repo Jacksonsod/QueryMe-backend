@@ -46,4 +46,25 @@ public class ExamSessionController {
             Pageable pageable) {
         return ResponseEntity.ok(sessionService.getSessionsByStudent(studentId, pageable));
     }
+
+    @PostMapping("/{sessionId}/extend")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ExamSessionResponse> extendSession(
+            @PathVariable String sessionId,
+            @jakarta.validation.Valid @RequestBody ExtendSessionRequest request) {
+        return ResponseEntity.ok(sessionService.extendSession(sessionId, request.getExtraHours()));
+    }
+
+    @PatchMapping("/{sessionId}/feedback")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ExamSessionResponse> addFeedback(
+            @PathVariable String sessionId,
+            @jakarta.validation.Valid @RequestBody FeedbackRequest request) {
+        return ResponseEntity.ok(sessionService.addFeedback(sessionId, request.getFeedback()));
+    }
+
+    @PostMapping("/{sessionId}/heartbeat")
+    public void heartbeat(@PathVariable String sessionId) {
+        sessionService.heartbeat(sessionId);
+    }
 }

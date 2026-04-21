@@ -1,5 +1,6 @@
 package com.year2.queryme.model.dto;
 
+import com.year2.queryme.model.enums.QuestionResultStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -16,6 +17,7 @@ public class StudentQuestionResultDto {
     private String submittedQuery;
     private Integer score;
     private Integer maxScore;
+    private QuestionResultStatus status;
     private Boolean isCorrect;
     private LocalDateTime submittedAt;
     private List<String> resultColumns;
