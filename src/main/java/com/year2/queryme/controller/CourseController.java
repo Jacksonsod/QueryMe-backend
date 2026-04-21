@@ -24,26 +24,35 @@ public class CourseController {
     private com.year2.queryme.service.CurrentUserService currentUserService;
 
     @PostMapping
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
     public Course create(@RequestBody java.util.Map<String, Object> data) {
         String name = (String) data.get("name");
         String code = (String) data.get("code");
-        Object teacherIdObj = data.get("teacherId");
-        
-        if (teacherIdObj == null) {
-            throw new RuntimeException("teacherId is required");
+
+        Teacher teacher;
+
+        if (currentUserService.hasRole(com.year2.queryme.model.enums.UserTypes.TEACHER)) {
+            // Teacher creates their own course — resolve from the authenticated user
+            String email = SecurityContextHolder.getContext().getAuthentication().getName();
+            teacher = teacherRepository.findByUserEmail(email)
+                    .orElseThrow(() -> new RuntimeException("Teacher profile not found for authenticated user"));
+        } else {
+            // Admin must supply an explicit teacherId
+            Object teacherIdObj = data.get("teacherId");
+            if (teacherIdObj == null) {
+                throw new RuntimeException("teacherId is required when creating a course as ADMIN");
+            }
+            Long teacherId = Long.parseLong(teacherIdObj.toString());
+            teacher = teacherRepository.findById(teacherId)
+                    .orElseThrow(() -> new RuntimeException("Teacher not found with id: " + teacherId));
         }
-        
-        Long teacherId = Long.parseLong(teacherIdObj.toString());
-        Teacher teacher = teacherRepository.findById(teacherId)
-                .orElseThrow(() -> new RuntimeException("Teacher not found with id: " + teacherId));
-        
+
         Course course = Course.builder()
                 .name(name)
                 .code(code)
                 .teacher(teacher)
                 .build();
-        
+
         return courseRepository.save(course);
     }
 

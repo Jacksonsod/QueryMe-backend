@@ -84,8 +84,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/class-groups/**").permitAll()
 
                         // ── Restricted write access ──────────────────────
-                        .requestMatchers(HttpMethod.POST, "/courses").hasRole("TEACHER")
-                        .requestMatchers(HttpMethod.POST, "/class-groups").hasRole("TEACHER")
+                        .requestMatchers(HttpMethod.POST, "/courses").hasAnyRole("ADMIN", "TEACHER")
+                        .requestMatchers(HttpMethod.PUT, "/courses/**").hasAnyRole("ADMIN", "TEACHER")
+                        .requestMatchers(HttpMethod.DELETE, "/courses/**").hasAnyRole("ADMIN", "TEACHER")
+                        .requestMatchers(HttpMethod.POST, "/class-groups").hasAnyRole("ADMIN", "TEACHER")
 
                         // ── Public read ─────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/courses").permitAll()
