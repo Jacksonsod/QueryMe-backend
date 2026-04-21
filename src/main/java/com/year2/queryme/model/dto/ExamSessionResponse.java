@@ -15,4 +15,6 @@ public class ExamSessionResponse {
     private boolean isSubmitted;
     private boolean isExpired;
     private String teacherFeedback;
+    private Integer totalScore;
+    private Integer totalMaxScore;
 }

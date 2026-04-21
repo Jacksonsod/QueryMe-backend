@@ -43,6 +43,9 @@ class QuestionServiceImplTest {
     private ExamRepository examRepository;
 
     @Mock
+    private com.year2.queryme.repository.CourseRepository courseRepository;
+
+    @Mock
     private SandboxService sandboxService;
 
     @Mock
@@ -71,6 +74,7 @@ class QuestionServiceImplTest {
                 questionRepository,
                 answerKeyRepository,
                 examRepository,
+                courseRepository,
                 sandboxService,
                 queryExecutor,
                 queryValidator,

@@ -1,0 +1,38 @@
+name: Deploy Backend to VM
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+
+        steps:
+            # Step 1: Checkout latest code
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            # Step 2: SSH into VM and deploy backend
+            - name: Deploy via SSH
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.VM_SSH_KEY }}
+                  script: |
+                      set -e  # Exit on error
+                      cd ~/queryme-backend
+
+                      echo "Updating code from main branch..."
+                      git fetch origin
+                      git reset --hard origin/main
+
+                      echo "Building new JAR..."
+                      ./mvnw clean package -DskipTests
+
+                      echo "Deploying via Docker Compose..."
+                      sudo docker compose up -d --build
+
+                      echo "Deployment complete!"

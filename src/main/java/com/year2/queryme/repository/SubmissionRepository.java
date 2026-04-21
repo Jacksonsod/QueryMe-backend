@@ -30,6 +30,13 @@ public interface SubmissionRepository extends JpaRepository<Submission, UUID> {
             from Submission s
             join ExamSession es on cast(s.sessionId as string) = es.id
             where s.examId = :examId
+              and s.submittedAt = (
+                  select max(s2.submittedAt)
+                  from Submission s2
+                  where s2.studentId = s.studentId
+                    and s2.questionId = s.questionId
+                    and s2.examId = s.examId
+              )
             order by s.submittedAt desc
             """)
     List<TeacherDashboardSubmissionView> findDashboardRowsByExamIdOrderBySubmittedAtDesc(@Param("examId") UUID examId);

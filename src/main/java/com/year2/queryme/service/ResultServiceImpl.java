@@ -27,6 +27,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -57,6 +60,7 @@ public class ResultServiceImpl implements ResultService {
      * Applies the exam's current visibility mode before exposing session results.
      */
 
+    @Cacheable(value = "student-results", key = "#sessionId")
     @Override
     public StudentExamResultDto getResultsForStudent(UUID sessionId) {
         ExamSession session = examSessionRepository.findById(sessionId.toString())
@@ -147,16 +151,13 @@ public class ResultServiceImpl implements ResultService {
         }
     }
 
+    @Cacheable(value = "teacher-dashboard", key = "#examId")
     @Override
     public List<TeacherDashboardRowDto> getResultsForTeacher(UUID examId) {
-        Map<String, TeacherDashboardSubmissionView> latestSubmissions = new LinkedHashMap<>();
-        for (TeacherDashboardSubmissionView submission : submissionRepository
-                .findDashboardRowsByExamIdOrderBySubmittedAtDesc(examId)) {
-            String key = submission.getStudentId() + ":" + submission.getQuestionId();
-            latestSubmissions.putIfAbsent(key, submission);
-        }
+        List<TeacherDashboardSubmissionView> submissions = submissionRepository
+                .findDashboardRowsByExamIdOrderBySubmittedAtDesc(examId);
 
-        if (latestSubmissions.isEmpty()) {
+        if (submissions.isEmpty()) {
             return List.of();
         }
 
@@ -164,7 +165,7 @@ public class ResultServiceImpl implements ResultService {
                 .stream()
                 .collect(Collectors.toMap(QuestionSummaryView::getId, question -> question));
 
-        Set<UUID> studentUserIds = latestSubmissions.values().stream()
+        Set<UUID> studentUserIds = submissions.stream()
                 .map(TeacherDashboardSubmissionView::getStudentId)
                 .collect(Collectors.toSet());
 
@@ -172,7 +173,7 @@ public class ResultServiceImpl implements ResultService {
                 .stream()
                 .collect(Collectors.toMap(StudentNameView::getUserId, student -> student));
 
-        return latestSubmissions.values().stream()
+        return submissions.stream()
                 .map(submission -> {
                     StudentNameView student = studentsByUserId.get(submission.getStudentId());
                     QuestionSummaryView question = questionMap.get(submission.getQuestionId());
@@ -204,6 +205,10 @@ public class ResultServiceImpl implements ResultService {
         return saveQueryResult(submission, question, score, isCorrect);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "student-results", allEntries = true),
+        @CacheEvict(value = "teacher-dashboard", allEntries = true)
+    })
     @Override
     public Result saveQueryResult(Submission submission, Question question, Integer score, Boolean isCorrect) {
         Result result = resultRepository.findBySubmissionId(submission.getId())

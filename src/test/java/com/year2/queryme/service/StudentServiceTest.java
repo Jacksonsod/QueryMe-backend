@@ -58,7 +58,7 @@ class StudentServiceTest {
         when(currentUserService.hasRole(UserTypes.STUDENT)).thenReturn(true);
         when(currentUserService.requireCurrentUserId()).thenReturn(userId);
 
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> studentService.updateProfile(1L, Map.of(
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> studentService.updateProfile("1", Map.of(
                 "fullName", "Changed Name",
                 "email", "changed@example.com"
         )));

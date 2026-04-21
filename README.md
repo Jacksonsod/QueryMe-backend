@@ -61,6 +61,30 @@ Optional advanced sandbox isolation variables:
 - `SANDBOX_DB_USER_PREFIX` username prefix for generated sandbox DB users
 - `SANDBOX_DB_USER_PASSWORD_LENGTH` generated sandbox DB user password length
 
+## Run with Docker Compose
+
+To build and run the application using Docker and Docker Compose, follow these steps:
+
+1. **Build the application JAR:**
+   Since the `Dockerfile` copies the packaged JAR file, you must first build the Spring Boot application using Maven:
+   ```bash
+   ./mvnw clean package -DskipTests
+   ```
+
+2. **Start the containers:**
+   Use Docker Compose to build the Docker image and start the application in the background:
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. **Stop the containers:**
+   To stop and remove the running containers:
+   ```bash
+   docker compose down
+   ```
+
+The application will be accessible at `http://localhost:<APP_PORT>` (where `APP_PORT` is defined in your `.env` file).
+
 ## Alignment Highlights
 
 These backend changes now match the intended QueryMe flow more closely:

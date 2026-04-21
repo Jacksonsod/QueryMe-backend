@@ -17,6 +17,7 @@ import com.year2.queryme.sandbox.service.SandboxService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -39,6 +40,7 @@ public class ExamSessionServiceImpl implements ExamSessionService {
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final ExamAttemptOverrideRepository attemptOverrideRepository;
     private final com.year2.queryme.repository.CourseRepository courseRepository;
+    private final com.year2.queryme.repository.ResultRepository resultRepository;
 
     @Override
     @Transactional
@@ -143,7 +145,17 @@ public class ExamSessionServiceImpl implements ExamSessionService {
         assertCurrentUserCanAccessStudentId(studentId);
         return sessionRepository.findByStudentId(studentId, pageable)
                 .map(session -> isExpiredAndOpen(session) ? autoSubmit(session) : session)
-                .map(ExamSessionMapper::toResponse);
+                .map(session -> {
+                    ExamSessionResponse res = ExamSessionMapper.toResponse(session);
+                    try {
+                        List<com.year2.queryme.model.Result> results = resultRepository.findBySessionId(UUID.fromString(session.getId()));
+                        if (!results.isEmpty()) {
+                            res.setTotalScore(results.stream().mapToInt(com.year2.queryme.model.Result::getScore).sum());
+                            res.setTotalMaxScore(results.stream().mapToInt(com.year2.queryme.model.Result::getMaxScore).sum());
+                        }
+                    } catch (Exception ignored) {}
+                    return res;
+                });
     }
 
     @Override
@@ -192,6 +204,7 @@ public class ExamSessionServiceImpl implements ExamSessionService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "student-results", key = "#sessionId")
     public ExamSessionResponse addFeedback(String sessionId, String feedback) {
         ExamSession session = findById(sessionId);
         if (currentUserService.hasRole(UserTypes.TEACHER)) {

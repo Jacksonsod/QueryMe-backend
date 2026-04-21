@@ -41,6 +41,9 @@ class ExamServiceImplTest {
     @Mock
     private com.year2.queryme.repository.AnswerKeyRepository answerKeyRepository;
 
+    @Mock
+    private com.year2.queryme.repository.CourseRepository courseRepository;
+
     private ExamServiceImpl examService;
 
     @BeforeEach
@@ -51,7 +54,8 @@ class ExamServiceImplTest {
                 studentRepository,
                 courseEnrollmentRepository,
                 questionRepository,
-                answerKeyRepository
+                answerKeyRepository,
+                courseRepository
         );
     }
 
