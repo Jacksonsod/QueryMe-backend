@@ -6,6 +6,9 @@ import com.year2.queryme.model.dto.JwtResponse;
 import com.year2.queryme.model.dto.LoginRequest;
 import com.year2.queryme.model.dto.MessageResponse;
 import com.year2.queryme.model.dto.SignupRequest;
+import com.year2.queryme.model.RegistrationRequest;
+import com.year2.queryme.model.enums.RegistrationRequestStatus;
+import com.year2.queryme.repository.RegistrationRequestRepository;
 import com.year2.queryme.repository.UserRepository;
 import com.year2.queryme.security.JwtUtils;
 import com.year2.queryme.security.UserDetailsImpl;
@@ -16,6 +19,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -38,6 +42,12 @@ public class AuthService {
 
     @Autowired
     AdminService adminService;
+
+    @Autowired
+    RegistrationRequestRepository registrationRequestRepository;
+
+    @Autowired
+    PasswordEncoder passwordEncoder;
 
     public ResponseEntity<?> authenticateUser(LoginRequest loginRequest) {
         Authentication authentication = authenticationManager.authenticate(
@@ -66,6 +76,19 @@ public class AuthService {
                     .body(new MessageResponse("Error: Email is already in use!"));
         }
 
+        if (registrationRequestRepository.existsByEmailAndStatus(signUpRequest.getEmail(), RegistrationRequestStatus.PENDING)) {
+            return ResponseEntity
+                    .badRequest()
+                    .body(new MessageResponse("Error: You already have a pending registration request!"));
+        }
+
+        String regNum = signUpRequest.getStudentNumber();
+        if (regNum == null || regNum.trim().isEmpty()) {
+            return ResponseEntity
+                    .badRequest()
+                    .body(new MessageResponse("Error: Registration number is required!"));
+        }
+
         UserTypes role = (signUpRequest.getRole() != null) ? signUpRequest.getRole() : UserTypes.STUDENT;
         if (role != UserTypes.STUDENT) {
             return ResponseEntity
@@ -73,15 +96,17 @@ public class AuthService {
                     .body(new MessageResponse("Error: Public signup only supports STUDENT accounts"));
         }
 
-        studentService.registerStudent(
-            signUpRequest.getEmail(),
-            signUpRequest.getPassword(),
-            signUpRequest.getFullName() != null ? signUpRequest.getFullName() : signUpRequest.getName(),
-            null, null,
-            signUpRequest.getStudentNumber()
-        );
+        RegistrationRequest request = RegistrationRequest.builder()
+                .email(signUpRequest.getEmail())
+                .fullName(signUpRequest.getFullName() != null ? signUpRequest.getFullName() : signUpRequest.getName())
+                .registrationNumber(regNum)
+                .passwordHash(passwordEncoder.encode(signUpRequest.getPassword()))
+                .status(RegistrationRequestStatus.PENDING)
+                .build();
 
-        return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
+        registrationRequestRepository.save(request);
+
+        return ResponseEntity.ok(new MessageResponse("Registration request submitted successfully! Please wait for admin approval."));
     }
 
     public ResponseEntity<?> initializeFirstSuperAdmin(InitializeSuperAdminRequest request) {

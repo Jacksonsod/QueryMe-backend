@@ -104,7 +104,7 @@ class StudentControllerIntegrationTest {
                         "studentNumber", "STU-101"));
 
         mockMvc.perform(post("/students/register/bulk")
-                .with(SecurityMockMvcRequestPostProcessors.user("teacher@example.com").roles("TEACHER"))
+                .with(SecurityMockMvcRequestPostProcessors.user("admin@example.com").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk())
@@ -146,7 +146,7 @@ class StudentControllerIntegrationTest {
                         "student_number", "STU-201"));
 
         mockMvc.perform(post("/students/register/bulk")
-                .with(SecurityMockMvcRequestPostProcessors.user("teacher@example.com").roles("TEACHER"))
+                .with(SecurityMockMvcRequestPostProcessors.user("admin@example.com").roles("ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isBadRequest())

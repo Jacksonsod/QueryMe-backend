@@ -1,5 +1,6 @@
 package com.year2.queryme.model.dto;
 
+import com.year2.queryme.model.enums.QuestionResultStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -16,7 +17,8 @@ public class TeacherDashboardRowDto {
     private String questionPrompt;
     private Integer score;
     private Integer maxScore;
-    private Boolean isCorrect;
+    private QuestionResultStatus status;
     private String submittedQuery;
     private LocalDateTime submittedAt;
+    private String teacherFeedback;
 }

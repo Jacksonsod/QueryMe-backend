@@ -18,4 +18,7 @@ public class StudentExamResultDto {
     private Integer totalScore;
     private Integer totalMaxScore;
     private List<StudentQuestionResultDto> questions;
+    private String teacherFeedback;
+    private String examTitle;
+    private String courseName;
 }

@@ -13,4 +13,5 @@ public interface ExamService {
     ExamResponse unpublishExam(String examId);
     ExamResponse closeExam(String examId);
     void deleteExam(String examId);
+    ExamResponse cloneExam(String examId);
 }

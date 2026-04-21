@@ -4,6 +4,7 @@ import com.year2.queryme.model.ClassGroup;
 import com.year2.queryme.model.Course;
 import com.year2.queryme.model.Student;
 import com.year2.queryme.model.User;
+import com.year2.queryme.model.RegistrationRequest;
 import com.year2.queryme.model.dto.StudentRegistrationRequest;
 import com.year2.queryme.repository.ClassGroupRepository;
 import com.year2.queryme.repository.CourseRepository;
@@ -83,9 +84,8 @@ public class StudentService {
     }
 
     @Transactional
-    public Student updateProfile(Long studentId, Map<String, String> data) {
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId));
+    public Student updateProfile(String id, Map<String, String> data) {
+        Student student = findStudentByIdOrUserId(id);
 
         boolean isStudentCaller = currentUserService.hasRole(UserTypes.STUDENT);
         if (isStudentCaller && (student.getUser() == null
@@ -230,17 +230,59 @@ public class StudentService {
                 .course(course)
                 .classGroup(classGroup)
                 .build();
+        return studentRepository.save(student);
+    }
+
+    @Transactional
+    public Student createStudentFromApprovedRequest(RegistrationRequest request) {
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("Email is already in use: " + request.getEmail());
+        }
+
+        User user = User.builder()
+                .email(request.getEmail())
+                .passwordHash(request.getPasswordHash())
+                .role(UserTypes.STUDENT)
+                .name(request.getFullName())
+                .mustResetPassword(false)
+                .build();
+        userRepository.save(user);
+        passwordService.recordPassword(user, request.getPasswordHash());
+
+        String[] nameParts = request.getFullName().split("\\s+", 2);
+        String firstName = nameParts[0];
+        String lastName = nameParts.length > 1 ? nameParts[1] : "";
+
+        Student student = Student.builder()
+                .fullName(request.getFullName())
+                .firstName(firstName)
+                .lastName(lastName)
+                .registeredAt(LocalDateTime.now())
+                .studentNumber(request.getRegistrationNumber())
+                .user(user)
+                .build();
 
         return studentRepository.save(student);
     }
 
     @Transactional
-    public void deleteStudent(Long id) {
-        Student student = studentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Student not found with id: " + id));
+    public void deleteStudent(String id) {
+        Student student = findStudentByIdOrUserId(id);
         
         // Due to CascadeType.ALL on User relationship, deleting the student will delete the user
         studentRepository.delete(student);
+    }
+
+    public Student findStudentByIdOrUserId(String id) {
+        try {
+            Long studentId = Long.parseLong(id);
+            return studentRepository.findById(studentId)
+                    .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId));
+        } catch (NumberFormatException e) {
+            // Assume it's a UUID (user_id)
+            return studentRepository.findByUser_Id(java.util.UUID.fromString(id))
+                    .orElseThrow(() -> new RuntimeException("Student not found with user id: " + id));
+        }
     }
 
     private String trimToNull(String value) {

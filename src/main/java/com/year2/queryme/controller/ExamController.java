@@ -13,6 +13,7 @@ import java.util.List;
 public class ExamController {
 
     private final ExamService examService;
+    private final com.year2.queryme.service.ExamSessionService sessionService;
 
     @PostMapping
     public ResponseEntity<ExamResponse> create(@RequestBody CreateExamRequest request) {
@@ -60,5 +61,28 @@ public class ExamController {
     public ResponseEntity<Void> delete(@PathVariable String examId) {
         examService.deleteExam(examId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{examId}/clone")
+    public ResponseEntity<ExamResponse> cloneExam(@PathVariable String examId) {
+        return ResponseEntity.ok(examService.cloneExam(examId));
+    }
+
+    @PostMapping("/{examId}/students/{studentId}/additional-attempts")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<Void> grantAdditionalAttempts(
+            @PathVariable String examId,
+            @PathVariable String studentId,
+            @RequestParam(defaultValue = "1") int count) {
+        sessionService.grantAdditionalAttempts(examId, studentId, count);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{examId}/students/{studentId}/additional-attempts")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('STUDENT', 'TEACHER', 'ADMIN')")
+    public ResponseEntity<Integer> getAdditionalAttempts(
+            @PathVariable String examId,
+            @PathVariable String studentId) {
+        return ResponseEntity.ok(sessionService.getAdditionalAttempts(examId, studentId));
     }
 }

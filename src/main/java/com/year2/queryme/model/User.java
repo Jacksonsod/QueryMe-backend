@@ -26,6 +26,7 @@ public class User {
     @Column(nullable = true)
     private String name;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
@@ -37,6 +38,7 @@ public class User {
     @Builder.Default
     private Boolean mustResetPassword = false;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private java.util.List<PasswordHistory> passwordHistories = new java.util.ArrayList<>();

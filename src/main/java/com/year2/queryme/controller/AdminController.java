@@ -10,6 +10,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
+import java.util.UUID;
+import com.year2.queryme.model.RegistrationRequest;
 
 @RestController
 @RequestMapping("/admins")
@@ -41,5 +44,23 @@ public class AdminController {
     @PreAuthorize("hasRole('ADMIN')")
     public Page<Admin> getAll(Pageable pageable) {
         return adminRepository.findAll(pageable);
+    }
+
+    @GetMapping("/registration-requests")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<RegistrationRequest> getRegistrationRequests() {
+        return adminService.getPendingRegistrationRequests();
+    }
+
+    @PostMapping("/registration-requests/{id}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public void approveRequest(@PathVariable UUID id) {
+        adminService.approveRegistrationRequest(id);
+    }
+
+    @PostMapping("/registration-requests/{id}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public void rejectRequest(@PathVariable UUID id, @RequestBody Map<String, String> data) {
+        adminService.rejectRegistrationRequest(id, data.get("reason"));
     }
 }

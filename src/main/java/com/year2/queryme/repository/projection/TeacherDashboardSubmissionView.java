@@ -11,4 +11,5 @@ public interface TeacherDashboardSubmissionView {
     Boolean getIsCorrect();
     String getSubmittedQuery();
     LocalDateTime getSubmittedAt();
+    String getTeacherFeedback();
 }

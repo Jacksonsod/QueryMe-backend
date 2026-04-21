@@ -31,9 +31,58 @@ public class ExamServiceImpl implements ExamService {
     private final StudentRepository studentRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final QuestionRepository questionRepository;
+    private final com.year2.queryme.repository.AnswerKeyRepository answerKeyRepository;
+    private final com.year2.queryme.repository.CourseRepository courseRepository;
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public ExamResponse cloneExam(String examId) {
+        Exam originalExam = findById(examId);
+        assertTeacherOwnsCourse(originalExam.getCourseId());
+
+        Exam clonedExam = Exam.builder()
+                .courseId(originalExam.getCourseId())
+                .title(originalExam.getTitle() + " (Copy)")
+                .description(originalExam.getDescription())
+                .visibilityMode(originalExam.getVisibilityMode())
+                .timeLimitMins(originalExam.getTimeLimitMins())
+                .maxAttempts(originalExam.getMaxAttempts())
+                .seedSql(originalExam.getSeedSql())
+                .build();
+
+        Exam savedClonedExam = examRepository.save(clonedExam);
+
+        List<com.year2.queryme.model.Question> originalQuestions = questionRepository.findByExamIdOrderByOrderIndexAsc(java.util.UUID.fromString(examId));
+
+        for (com.year2.queryme.model.Question q : originalQuestions) {
+            com.year2.queryme.model.Question clonedQ = com.year2.queryme.model.Question.builder()
+                    .examId(java.util.UUID.fromString(savedClonedExam.getId()))
+                    .prompt(q.getPrompt())
+                    .referenceQuery(q.getReferenceQuery())
+                    .marks(q.getMarks())
+                    .orderIndex(q.getOrderIndex())
+                    .orderSensitive(q.getOrderSensitive())
+                    .partialMarks(q.getPartialMarks())
+                    .build();
+            
+            com.year2.queryme.model.Question savedClonedQ = questionRepository.save(clonedQ);
+
+            answerKeyRepository.findByQuestionId(q.getId()).ifPresent(ak -> {
+                com.year2.queryme.model.AnswerKey clonedAk = com.year2.queryme.model.AnswerKey.builder()
+                        .questionId(savedClonedQ.getId())
+                        .expectedColumns(ak.getExpectedColumns())
+                        .expectedRows(ak.getExpectedRows())
+                        .build();
+                answerKeyRepository.save(clonedAk);
+            });
+        }
+
+        return toResponse(savedClonedExam);
+    }
 
     @Override
     public ExamResponse createExam(CreateExamRequest request) {
+        assertTeacherOwnsCourse(request.getCourseId());
         if (request.getSeedSql() == null || request.getSeedSql().isBlank()) {
             throw new RuntimeException("seed_sql is required — Group D needs it to create sandboxes");
         }
@@ -63,6 +112,9 @@ public class ExamServiceImpl implements ExamService {
 
     @Override
     public List<ExamResponse> getExamsByCourse(String courseId) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            assertTeacherOwnsCourse(courseId);
+        }
         List<Exam> exams = currentUserService.hasRole(UserTypes.STUDENT)
                 ? examRepository.findByCourseIdAndStatus(courseId, ExamStatus.PUBLISHED)
                 : examRepository.findByCourseId(courseId);
@@ -78,17 +130,28 @@ public class ExamServiceImpl implements ExamService {
     @Override
     public ExamResponse updateExam(String examId, UpdateExamRequest request) {
         Exam exam = findById(examId);
+        assertTeacherOwnsCourse(exam.getCourseId());
 
-        if (exam.getStatus() != ExamStatus.DRAFT) {
-            throw new RuntimeException("Only DRAFT exams can be edited");
+        if (exam.getStatus() == ExamStatus.CLOSED) {
+            throw new RuntimeException("CLOSED exams cannot be edited");
+        }
+
+        if (exam.getStatus() == ExamStatus.PUBLISHED) {
+            if (request.getSeedSql() != null && !request.getSeedSql().equals(exam.getSeedSql())) {
+                throw new RuntimeException("Cannot change seed SQL of a PUBLISHED exam");
+            }
         }
 
         if (request.getTitle() != null) exam.setTitle(request.getTitle());
         if (request.getDescription() != null) exam.setDescription(request.getDescription());
         if (request.getVisibilityMode() != null) exam.setVisibilityMode(request.getVisibilityMode());
-        if (request.getTimeLimitMins() != null) exam.setTimeLimitMins(request.getTimeLimitMins());
         if (request.getMaxAttempts() != null) exam.setMaxAttempts(request.getMaxAttempts());
-        if (request.getSeedSql() != null) exam.setSeedSql(request.getSeedSql());
+        
+        if (request.getTimeLimitMins() != null) exam.setTimeLimitMins(request.getTimeLimitMins());
+        
+        if (exam.getStatus() == ExamStatus.DRAFT) {
+            if (request.getSeedSql() != null) exam.setSeedSql(request.getSeedSql());
+        }
 
         return toResponse(examRepository.save(exam));
     }
@@ -96,6 +159,7 @@ public class ExamServiceImpl implements ExamService {
     @Override
     public ExamResponse publishExam(String examId) {
         Exam exam = findById(examId);
+        assertTeacherOwnsCourse(exam.getCourseId());
 
         if (exam.getStatus() != ExamStatus.DRAFT) {
             throw new RuntimeException("Only DRAFT exams can be published");
@@ -116,6 +180,7 @@ public class ExamServiceImpl implements ExamService {
     @Override
     public ExamResponse unpublishExam(String examId) {
         Exam exam = findById(examId);
+        assertTeacherOwnsCourse(exam.getCourseId());
 
         if (exam.getStatus() != ExamStatus.PUBLISHED) {
             throw new RuntimeException("Only PUBLISHED exams can be unpublished");
@@ -130,6 +195,7 @@ public class ExamServiceImpl implements ExamService {
     @Override
     public ExamResponse closeExam(String examId) {
         Exam exam = findById(examId);
+        assertTeacherOwnsCourse(exam.getCourseId());
 
         if (exam.getStatus() != ExamStatus.PUBLISHED) {
             throw new RuntimeException("Only PUBLISHED exams can be closed");
@@ -142,6 +208,7 @@ public class ExamServiceImpl implements ExamService {
     @Override
     public void deleteExam(String examId) {
         Exam exam = findById(examId);
+        assertTeacherOwnsCourse(exam.getCourseId());
 
         if (exam.getStatus() != ExamStatus.DRAFT) {
             throw new RuntimeException("Only DRAFT exams can be deleted");
@@ -157,6 +224,10 @@ public class ExamServiceImpl implements ExamService {
 
     private ExamResponse toResponse(Exam exam) {
         ExamResponse response = ExamMapper.toResponse(exam);
+        
+        courseRepository.findById(Long.parseLong(exam.getCourseId()))
+                .ifPresent(course -> response.setCourseName(course.getName()));
+
         int questionCount = Math.toIntExact(questionRepository.countByExamId(java.util.UUID.fromString(exam.getId())));
         response.setQuestionCount(questionCount);
         response.setQuestionsCount(questionCount);
@@ -168,6 +239,10 @@ public class ExamServiceImpl implements ExamService {
 
     private ExamResponse toResponse(Exam exam, Integer questionCount) {
         ExamResponse response = ExamMapper.toResponse(exam);
+
+        courseRepository.findById(Long.parseLong(exam.getCourseId()))
+                .ifPresent(course -> response.setCourseName(course.getName()));
+
         int safeQuestionCount = questionCount != null ? questionCount : 0;
         response.setQuestionCount(safeQuestionCount);
         response.setQuestionsCount(safeQuestionCount);
@@ -251,6 +326,17 @@ public class ExamServiceImpl implements ExamService {
         }
 
         return accessContext.enrolledCourseIds().contains(exam.getCourseId());
+    }
+
+    private void assertTeacherOwnsCourse(String courseId) {
+        if (currentUserService.hasRole(UserTypes.TEACHER)) {
+            com.year2.queryme.model.Course course = courseRepository.findById(Long.parseLong(courseId))
+                    .orElseThrow(() -> new RuntimeException("Course not found: " + courseId));
+            String email = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
+            if (!course.getTeacher().getUser().getEmail().equals(email)) {
+                throw new RuntimeException("Teachers can only manage exams for their own courses");
+            }
+        }
     }
 
     private record StudentAccessContext(Student student, Set<String> enrolledCourseIds) {
