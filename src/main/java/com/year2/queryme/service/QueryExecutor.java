@@ -62,6 +62,10 @@ public class QueryExecutor {
                         }
                     }
 
+                    // Reset search path to default (usually 'public') so subsequent JPA/Hibernate operations
+                    // on this connection can find the application tables.
+                    stmt.execute("SET search_path TO DEFAULT");
+
                     if (rollbackAfterExecution) {
                         con.rollback();
                     } else {
@@ -71,6 +75,9 @@ public class QueryExecutor {
                     return new SandboxExecutionResult(sawResultSet, lastColumns, lastRows);
                 }
             } catch (Exception e) {
+                try (Statement stmt = con.createStatement()) {
+                    stmt.execute("SET search_path TO DEFAULT");
+                } catch (Exception ignored) {}
                 try {
                     con.rollback();
                 } catch (Exception ignored) {
