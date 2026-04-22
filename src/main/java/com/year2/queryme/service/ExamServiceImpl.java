@@ -138,21 +138,23 @@ public class ExamServiceImpl implements ExamService {
         }
 
         if (exam.getStatus() == ExamStatus.PUBLISHED) {
+            if (request.getTitle() != null && !request.getTitle().equals(exam.getTitle())) {
+                throw new RuntimeException("Cannot change the Title of a PUBLISHED exam");
+            }
             if (request.getSeedSql() != null && !request.getSeedSql().equals(exam.getSeedSql())) {
                 throw new RuntimeException("Cannot change seed SQL of a PUBLISHED exam");
             }
         }
 
-        if (request.getTitle() != null) exam.setTitle(request.getTitle());
+        if (exam.getStatus() == ExamStatus.DRAFT) {
+            if (request.getTitle() != null) exam.setTitle(request.getTitle());
+            if (request.getSeedSql() != null) exam.setSeedSql(request.getSeedSql());
+        }
+
         if (request.getDescription() != null) exam.setDescription(request.getDescription());
         if (request.getVisibilityMode() != null) exam.setVisibilityMode(request.getVisibilityMode());
         if (request.getMaxAttempts() != null) exam.setMaxAttempts(request.getMaxAttempts());
-        
         if (request.getTimeLimitMins() != null) exam.setTimeLimitMins(request.getTimeLimitMins());
-        
-        if (exam.getStatus() == ExamStatus.DRAFT) {
-            if (request.getSeedSql() != null) exam.setSeedSql(request.getSeedSql());
-        }
 
         return toResponse(examRepository.save(exam));
     }
