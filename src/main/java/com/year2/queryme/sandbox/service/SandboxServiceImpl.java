@@ -78,7 +78,7 @@ public class SandboxServiceImpl implements SandboxService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String provisionSandbox(UUID examId, UUID studentId, String seedSql) {
         var exam = examRepository.findById(examId.toString())
                 .orElseThrow(() -> new SandboxProvisioningException("Exam not found in registry"));
